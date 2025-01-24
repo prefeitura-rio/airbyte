@@ -8,6 +8,7 @@ definitions:
       type: DpathExtractor
       field_path: []
   requester:
+    type: CustomRequester
     url_base: "http://{{ config['host'] }}:{{ config['port'] }}"
     http_method: "GET"
     authenticator:
