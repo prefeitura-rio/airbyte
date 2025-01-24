@@ -81,6 +81,6 @@ class SourceCouchdb(AbstractSource):
             raise KeyError(f"KeyError: {str(e)} is required.")
 
         authenticator = BasicHttpAuthenticator(username=username, password=password)
-        url_base = f"http://{host}:{port}/{database}"
+        url_base = f"http://{host}:{port}/{database}/"
 
         return [Documents(url_base=url_base, page_size=page_size, authenticator=authenticator)]

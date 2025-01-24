@@ -58,8 +58,6 @@ class CouchdbStream(HttpStream, ABC):
             raise KeyError("Response does not contain 'total_rows' field.")
         if total_fetched < total_rows:
             return {
-                "include_docs": True,
-                "limit": self.__page_size,
                 "skip": total_fetched,
             }
         return None
@@ -67,7 +65,13 @@ class CouchdbStream(HttpStream, ABC):
     def request_params(
         self, stream_state: Mapping[str, Any], stream_slice: Mapping[str, any] = None, next_page_token: Mapping[str, Any] = None
     ) -> MutableMapping[str, Any]:
-        return next_page_token
+        base_params = {
+            "include_docs": True,
+            "limit": self.__page_size,
+        }
+        if next_page_token:
+            base_params.update(next_page_token)
+        return base_params
 
     def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
         """
