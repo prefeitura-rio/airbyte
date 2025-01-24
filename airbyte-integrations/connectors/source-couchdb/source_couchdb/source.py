@@ -76,10 +76,11 @@ class SourceCouchdb(AbstractSource):
             username = config["username"]
             password = config["password"]
             database = config["database"]
+            page_size = config.get("pageSize", 1000)
         except KeyError as e:
-            return False, f"KeyError: {str(e)} is required."
+            raise KeyError(f"KeyError: {str(e)} is required.")
 
         authenticator = BasicHttpAuthenticator(username=username, password=password)
         url_base = f"http://{host}:{port}/{database}"
 
-        return [Documents(url_base=url_base, authenticator=authenticator)]
+        return [Documents(url_base=url_base, page_size=page_size, authenticator=authenticator)]

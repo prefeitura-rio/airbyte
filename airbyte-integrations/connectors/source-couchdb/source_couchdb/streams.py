@@ -33,9 +33,9 @@ class CouchdbStream(HttpStream, ABC):
     """
 
     def __init__(self, url_base: str, page_size: int, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         self.__url_base = url_base
         self.__page_size = page_size
+        return super().__init__(*args, **kwargs)
 
     @property
     def url_base(self) -> str:

@@ -36,3 +36,10 @@ connectionSpecification:
       description: The database to read data from.
       examples:
         - my_database
+    pageSize:
+      type: integer
+      description: The number of records to fetch in a single request.
+      minimum: 1
+      default: 1000
+      examples:
+        - 1000
