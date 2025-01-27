@@ -185,7 +185,7 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
             Mapping[str, Any]: The updated stream state.
         """
         current_cursor_value = current_stream_state.get(self.cursor_field, None)
-        latest_cursor_value = latest_record.get("last_seq")
+        latest_cursor_value = latest_record.get("seq")
 
         if current_cursor_value is None:
             return {self.cursor_field: latest_cursor_value}
@@ -235,7 +235,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
     An incremental stream for fetching documents from a CouchDB database using the _changes API.
     """
 
-    cursor_field = "last_seq"
+    cursor_field = "seq"
     primary_key = "id"
 
     def path(
@@ -257,7 +257,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         """
         return "_changes"
 
-    def process_document(self, result, rows, last_seq):
+    def process_document(self, result, rows):
         """
         Process a single document from the bulk response.
 
@@ -289,7 +289,6 @@ class DocumentsIncremental(IncrementalCouchdbStream):
             "value": {"rev": doc.get("_rev")},
             "doc": doc,
             "seq": seq,
-            "last_seq": last_seq,
         }
 
     def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
@@ -305,7 +304,6 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         response_json = response.json()
         if "results" not in response_json:
             raise KeyError("Response does not contain 'results' field.")
-        last_seq = response_json["last_seq"]
         rows = response_json["results"]
 
         bulk_docs = {"docs": [{"id": row["id"]} for row in rows]}
@@ -316,7 +314,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         bulk_docs_response = bulk_response.json()
 
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(self.process_document, result, rows, last_seq) for result in bulk_docs_response["results"]]
+            futures = [executor.submit(self.process_document, result, rows) for result in bulk_docs_response["results"]]
 
             for future in as_completed(futures):
                 result = future.result()
