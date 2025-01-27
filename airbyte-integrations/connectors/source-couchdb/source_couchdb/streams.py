@@ -11,32 +11,6 @@ from airbyte_cdk.sources.streams.http import HttpStream
 
 # Basic full refresh stream
 class CouchdbStream(HttpStream, ABC):
-    """
-    TODO remove this comment
-
-    This class represents a stream output by the connector.
-    This is an abstract base class meant to contain all the common functionality at the API level e.g: the API base URL, pagination strategy,
-    parsing responses etc..
-
-    Each stream should extend this class (or another abstract subclass of it) to specify behavior unique to that stream.
-
-    Typically for REST APIs each stream corresponds to a resource in the API. For example if the API
-    contains the endpoints
-        - GET v1/customers
-        - GET v1/employees
-
-    then you should have three classes:
-    `class CouchdbStream(HttpStream, ABC)` which is the current class
-    `class Customers(CouchdbStream)` contains behavior to pull data for customers using v1/customers
-    `class Employees(CouchdbStream)` contains behavior to pull data for employees using v1/employees
-
-    If some streams implement incremental sync, it is typical to create another class
-    `class IncrementalCouchdbStream((CouchdbStream), ABC)` then have concrete stream implementations extend it. An example
-    is provided below.
-
-    See the reference docs for the full list of configurable options.
-    """
-
     def __init__(self, url_base: str, page_size: int, *args, **kwargs):
         self.__url_base = url_base
         self.__page_size = page_size
@@ -105,10 +79,15 @@ class Documents(CouchdbStream):
 
 
 # Basic incremental stream
-class IncrementalCouchdbStream(CouchdbStream, ABC):
-    """
-    Base class for CouchDB streams that support incremental sync using _changes.
-    """
+class IncrementalCouchdbStream(HttpStream, ABC):
+    def __init__(self, url_base: str, page_size: int, *args, **kwargs):
+        self.__url_base = url_base
+        self.__page_size = page_size
+        return super().__init__(*args, **kwargs)
+
+    @property
+    def url_base(self) -> str:
+        return self.__url_base
 
     state_checkpoint_interval = 1000
 
@@ -135,7 +114,7 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         Updates the stream state based on the most recent record.
         """
         current_cursor_value = current_stream_state.get(self.cursor_field, None)
-        latest_cursor_value = latest_record.get(self.cursor_field)
+        latest_cursor_value = latest_record.get("seq")
 
         if current_cursor_value is None:
             return {self.cursor_field: latest_cursor_value}
@@ -156,6 +135,13 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
             params["since"] = stream_state.get(self.cursor_field)
         params["feed"] = "normal"
         return params
+
+    def _send_request(self, request: requests.PreparedRequest, request_kwargs: Mapping[str, Any]) -> requests.Response:
+        """
+        Sends the request and logs the url.
+        """
+        self.logger.info(f"Request URL: {request.url}")
+        return super()._send_request(request, request_kwargs)
 
 
 class DocumentsIncremental(IncrementalCouchdbStream):
@@ -184,10 +170,11 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         response_json = response.json()
         if "results" not in response_json:
             raise KeyError("Response does not contain 'results' field.")
+
+        last_seq = response_json["last_seq"]
         for row in response_json["results"]:
-            if "doc" in row:
-                row["doc"]["seq"] = row["seq"]
-                yield row
+            row["last_seq"] = last_seq
+            yield row
 
     def stream_slices(self, stream_state: Mapping[str, Any] = None, **kwargs) -> Iterable[Optional[Mapping[str, Any]]]:
         """
@@ -195,19 +182,3 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         então retornamos um único slice vazio.
         """
         return [None]
-
-    def get_updated_state(
-        self,
-        current_stream_state: MutableMapping[str, Any],
-        latest_record: Mapping[str, Any],
-    ) -> Mapping[str, Any]:
-        """
-        Atualiza o estado do stream com base no registro mais recente.
-        """
-        current_cursor_value = current_stream_state.get(self.cursor_field, None)
-        latest_cursor_value = latest_record.get("seq")
-
-        if current_cursor_value is None:
-            return {self.cursor_field: latest_cursor_value}
-        else:
-            return {self.cursor_field: max(latest_cursor_value, current_cursor_value)}
