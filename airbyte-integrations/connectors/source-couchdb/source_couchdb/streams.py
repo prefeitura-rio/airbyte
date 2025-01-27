@@ -161,7 +161,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
     cursor_field = "last_modified"
 
     # Define a chave primária para o stream
-    primary_key = "id"
+    primary_key = "key"
 
     def path(self, **kwargs) -> str:
         """
