@@ -1,8 +1,12 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
+
 from abc import ABC
 from typing import Any, Iterable, Mapping, MutableMapping, Optional
 
 import requests
+
 from airbyte_cdk.sources.streams.http import HttpStream
+
 
 # Basic full refresh stream
 class CouchdbStream(HttpStream, ABC):
@@ -63,7 +67,10 @@ class CouchdbStream(HttpStream, ABC):
         return None
 
     def request_params(
-        self, stream_state: Mapping[str, Any], stream_slice: Mapping[str, any] = None, next_page_token: Mapping[str, Any] = None
+        self,
+        stream_state: Mapping[str, Any],
+        stream_slice: Mapping[str, any] = None,
+        next_page_token: Mapping[str, Any] = None,
     ) -> MutableMapping[str, Any]:
         base_params = {
             "include_docs": True,
@@ -86,77 +93,111 @@ class CouchdbStream(HttpStream, ABC):
 
 class Documents(CouchdbStream):
     primary_key = "key"
+
     def path(
-        self, stream_state: Mapping[str, Any] = None, stream_slice: Mapping[str, Any] = None, next_page_token: Mapping[str, Any] = None
+        self,
+        stream_state: Mapping[str, Any] = None,
+        stream_slice: Mapping[str, Any] = None,
+        next_page_token: Mapping[str, Any] = None,
     ) -> str:
         return "_all_docs"
 
 
-# # Basic incremental stream
-# class IncrementalCouchdbStream(CouchdbStream, ABC):
-#     """
-#     TODO fill in details of this class to implement functionality related to incremental syncs for your connector.
-#          if you do not need to implement incremental sync for any streams, remove this class.
-#     """
+# Basic incremental stream
+class IncrementalCouchdbStream(CouchdbStream, ABC):
+    """
+    Base class for CouchDB streams that support incremental sync.
+    """
 
-#     # TODO: Fill in to checkpoint stream reads after N records. This prevents re-reading of data if the stream fails for any reason.
-#     state_checkpoint_interval = None
+    # Define o intervalo de checkpoint para salvar o estado após N registros
+    state_checkpoint_interval = 1000
 
-#     @property
-#     def cursor_field(self) -> str:
-#         """
-#         TODO
-#         Override to return the cursor field used by this stream e.g: an API entity might always use created_at as the cursor field. This is
-#         usually id or date based. This field's presence tells the framework this in an incremental stream. Required for incremental.
+    @property
+    def cursor_field(self) -> str:
+        """
+        Retorna o campo que será usado como cursor para a sincronização incremental.
+        Este campo deve ser um campo que aumenta monotonicamente, como um timestamp ou um ID.
+        """
+        raise NotImplementedError("Subclasses should implement this method to return the cursor field.")
 
-#         :return str: The name of the cursor field.
-#         """
-#         return []
+    def get_updated_state(
+        self,
+        current_stream_state: MutableMapping[str, Any],
+        latest_record: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        """
+        Atualiza o estado do stream com base no registro mais recente.
+        O estado é usado para determinar a partir de onde a próxima sincronização deve começar.
+        """
+        current_cursor_value = current_stream_state.get(self.cursor_field, None)
+        latest_cursor_value = latest_record.get(self.cursor_field)
 
-#     def get_updated_state(self, current_stream_state: MutableMapping[str, Any], latest_record: Mapping[str, Any]) -> Mapping[str, Any]:
-#         """
-#         Override to determine the latest state after reading the latest record. This typically compared the cursor_field from the latest record and
-#         the current state and picks the 'most' recent cursor. This is how a stream's state is determined. Required for incremental.
-#         """
-#         return {}
+        if current_cursor_value is None:
+            return {self.cursor_field: latest_cursor_value}
+        else:
+            return {self.cursor_field: max(latest_cursor_value, current_cursor_value)}
+
+    def request_params(
+        self,
+        stream_state: Mapping[str, Any],
+        stream_slice: Mapping[str, Any] = None,
+        next_page_token: Mapping[str, Any] = None,
+    ) -> MutableMapping[str, Any]:
+        """
+        Adiciona parâmetros de consulta para suportar a sincronização incremental.
+        """
+        params = super().request_params(stream_state, stream_slice, next_page_token)
+        if stream_state:
+            params["startkey"] = stream_state.get(self.cursor_field)
+        return params
 
 
-# class Employees(IncrementalCouchdbStream):
-#     """
-#     TODO: Change class name to match the table/data source this stream corresponds to.
-#     """
+class DocumentsIncremental(IncrementalCouchdbStream):
+    """
+    Stream incremental para documentos no CouchDB.
+    """
 
-#     # TODO: Fill in the cursor_field. Required.
-#     cursor_field = "start_date"
+    # Define o campo que será usado como cursor para a sincronização incremental
+    cursor_field = "last_modified"
 
-#     # TODO: Fill in the primary key. Required. This is usually a unique field in the stream, like an ID or a timestamp.
-#     primary_key = "employee_id"
+    # Define a chave primária para o stream
+    primary_key = "id"
 
-#     def path(self, **kwargs) -> str:
-#         """
-#         TODO: Override this method to define the path this stream corresponds to. E.g. if the url is https://example-api.com/v1/employees then this should
-#         return "single". Required.
-#         """
-#         return "employees"
+    def path(self, **kwargs) -> str:
+        """
+        Retorna o caminho da API que será usado para buscar os documentos.
+        """
+        return "_all_docs"
 
-#     def stream_slices(self, stream_state: Mapping[str, Any] = None, **kwargs) -> Iterable[Optional[Mapping[str, any]]]:
-#         """
-#         TODO: Optionally override this method to define this stream's slices. If slicing is not needed, delete this method.
+    def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
+        """
+        Parseia a resposta da API e retorna os registros.
+        """
+        response_json = response.json()
+        if "rows" not in response_json:
+            raise KeyError("Response does not contain 'rows' field.")
+        for row in response_json["rows"]:
+            yield row["doc"]
 
-#         Slices control when state is saved. Specifically, state is saved after a slice has been fully read.
-#         This is useful if the API offers reads by groups or filters, and can be paired with the state object to make reads efficient. See the "concepts"
-#         section of the docs for more information.
+    def stream_slices(self, stream_state: Mapping[str, Any] = None, **kwargs) -> Iterable[Optional[Mapping[str, Any]]]:
+        """
+        Define os slices para o stream. Neste caso, não precisamos de slices específicos,
+        então retornamos um único slice vazio.
+        """
+        return [None]
 
-#         The function is called before reading any records in a stream. It returns an Iterable of dicts, each containing the
-#         necessary data to craft a request for a slice. The stream state is usually referenced to determine what slices need to be created.
-#         This means that data in a slice is usually closely related to a stream's cursor_field and stream_state.
+    def get_updated_state(
+        self,
+        current_stream_state: MutableMapping[str, Any],
+        latest_record: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        """
+        Atualiza o estado do stream com base no registro mais recente.
+        """
+        current_cursor_value = current_stream_state.get(self.cursor_field, None)
+        latest_cursor_value = latest_record.get(self.cursor_field)
 
-#         An HTTP request is made for each returned slice. The same slice can be accessed in the path, request_params and request_header functions to help
-#         craft that specific request.
-
-#         For example, if https://example-api.com/v1/employees offers a date query params that returns data for that particular day, one way to implement
-#         this would be to consult the stream state object for the last synced date, then return a slice containing each date from the last synced date
-#         till now. The request_params function would then grab the date from the stream_slice and make it part of the request by injecting it into
-#         the date query param.
-#         """
-#         raise NotImplementedError("Implement stream slices or delete this method!")
+        if current_cursor_value is None:
+            return {self.cursor_field: latest_cursor_value}
+        else:
+            return {self.cursor_field: max(latest_cursor_value, current_cursor_value)}

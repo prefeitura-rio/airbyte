@@ -4,12 +4,14 @@
 from typing import Any, List, Mapping, Tuple
 
 import requests
+from requests.exceptions import ConnectionError, HTTPError, Timeout
+
 from airbyte_cdk.sources import AbstractSource
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.sources.streams.http.requests_native_auth import BasicHttpAuthenticator
-from requests.exceptions import ConnectionError, Timeout, HTTPError
 
-from .streams import Documents
+from .streams import Documents, DocumentsIncremental
+
 
 class SourceCouchdb(AbstractSource):
     def check_connection(self, logger, config) -> Tuple[bool, any]:
@@ -53,19 +55,31 @@ class SourceCouchdb(AbstractSource):
             elif db_response.status_code == 404:
                 return False, f"Error: Database '{database}' not found."
             elif db_response.status_code == 403:
-                return False, f"Error: Access to database '{database}' is forbidden. Check your credentials."
+                return (
+                    False,
+                    f"Error: Access to database '{database}' is forbidden. Check your credentials.",
+                )
             else:
-                return False, f"Unexpected response when accessing database '{database}': {db_response.status_code} {db_response.reason}"
+                return (
+                    False,
+                    f"Unexpected response when accessing database '{database}': {db_response.status_code} {db_response.reason}",
+                )
 
         except ConnectionError:
-            return False, "Error: Unable to connect to the CouchDB server. Check if the server is running and the URL is correct."
+            return (
+                False,
+                "Error: Unable to connect to the CouchDB server. Check if the server is running and the URL is correct.",
+            )
         except Timeout:
-            return False, f"Error: Connection to CouchDB server timed out after {timeout} seconds."
+            return (
+                False,
+                f"Error: Connection to CouchDB server timed out after {timeout} seconds.",
+            )
         except HTTPError as e:
             return False, f"HTTP Error {e.response.status_code}: {e.response.reason}"
         except Exception as e:
             return False, f"Unexpected error occurred: {str(e)}"
-        
+
     def streams(self, config: Mapping[str, Any]) -> List[Stream]:
         """
         :param config: A Mapping of the user input configuration as defined in the connector spec.
@@ -83,4 +97,7 @@ class SourceCouchdb(AbstractSource):
         authenticator = BasicHttpAuthenticator(username=username, password=password)
         url_base = f"http://{host}:{port}/{database}/"
 
-        return [Documents(url_base=url_base, page_size=page_size, authenticator=authenticator)]
+        return [
+            Documents(url_base=url_base, page_size=page_size, authenticator=authenticator),
+            DocumentsIncremental(url_base=url_base, page_size=page_size, authenticator=authenticator),
+        ]
