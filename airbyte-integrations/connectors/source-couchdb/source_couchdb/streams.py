@@ -93,7 +93,7 @@ class CouchdbStream(HttpStream, ABC):
 
 
 class Documents(CouchdbStream):
-    primary_key = "key"
+    primary_key = "id"
 
     def path(
         self,
@@ -107,10 +107,9 @@ class Documents(CouchdbStream):
 # Basic incremental stream
 class IncrementalCouchdbStream(CouchdbStream, ABC):
     """
-    Base class for CouchDB streams that support incremental sync.
+    Base class for CouchDB streams that support incremental sync using _changes.
     """
 
-    # Define o intervalo de checkpoint para salvar o estado após N registros
     state_checkpoint_interval = 1000
 
     @property
@@ -127,8 +126,7 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         latest_record: Mapping[str, Any],
     ) -> Mapping[str, Any]:
         """
-        Atualiza o estado do stream com base no registro mais recente.
-        O estado é usado para determinar a partir de onde a próxima sincronização deve começar.
+        Updates the stream state based on the most recent record.
         """
         current_cursor_value = current_stream_state.get(self.cursor_field, None)
         latest_cursor_value = latest_record.get(self.cursor_field)
@@ -145,35 +143,25 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         next_page_token: Mapping[str, Any] = None,
     ) -> MutableMapping[str, Any]:
         """
-        Adiciona parâmetros de consulta para suportar a sincronização incremental.
+        Adds query parameters to support incremental sync with _changes.
         """
         params = super().request_params(stream_state, stream_slice, next_page_token)
         if stream_state:
-            params["startkey"] = stream_state.get(self.cursor_field)
+            params["since"] = stream_state.get(self.cursor_field)
+        params["feed"] = "normal"
         return params
 
 
 class DocumentsIncremental(IncrementalCouchdbStream):
     """
-    Stream incremental para documentos no CouchDB.
+    Stream incremental para documentos no CouchDB usando _changes.
     """
 
     # Define o campo que será usado como cursor para a sincronização incremental
-    cursor_field = "last_modified"
+    cursor_field = "seq"
 
     # Define a chave primária para o stream
-    primary_key = "key"
-
-    def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
-        """
-        :return an iterable containing each record in the response
-        """
-        response_json = response.json()
-        if "rows" not in response_json:
-            raise KeyError("Response does not contain 'rows' field.")
-        for row in response_json["rows"]:
-            row["last_modified"] = row["doc"].get("last_modified")
-            yield row
+    primary_key = "id"
 
     def path(
         self,
@@ -181,7 +169,19 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         stream_slice: Mapping[str, Any] = None,
         next_page_token: Mapping[str, Any] = None,
     ) -> str:
-        return "_all_docs"
+        return "_changes"
+
+    def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
+        """
+        :return an iterable containing each record in the response
+        """
+        response_json = response.json()
+        if "results" not in response_json:
+            raise KeyError("Response does not contain 'results' field.")
+        for row in response_json["results"]:
+            if "doc" in row:
+                row["doc"]["seq"] = row["seq"]
+                yield row
 
     def stream_slices(self, stream_state: Mapping[str, Any] = None, **kwargs) -> Iterable[Optional[Mapping[str, Any]]]:
         """
@@ -199,7 +199,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         Atualiza o estado do stream com base no registro mais recente.
         """
         current_cursor_value = current_stream_state.get(self.cursor_field, None)
-        latest_cursor_value = latest_record.get(self.cursor_field)
+        latest_cursor_value = latest_record.get("seq")
 
         if current_cursor_value is None:
             return {self.cursor_field: latest_cursor_value}
