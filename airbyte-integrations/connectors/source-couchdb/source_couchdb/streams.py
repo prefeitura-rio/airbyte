@@ -1,6 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Iterable, Mapping, MutableMapping, Optional
 
@@ -12,10 +12,6 @@ from airbyte_cdk.sources.streams.http import HttpStream
 class CouchdbStream(HttpStream, ABC):
     """
     A base class for CouchDB streams. This class provides common functionality for interacting with CouchDB APIs.
-
-    Attributes:
-        url_base (str): The base URL for the CouchDB instance.
-        page_size (int): The number of records to fetch per page.
     """
 
     def __init__(self, url_base: str, page_size: int, *args, **kwargs):
@@ -26,9 +22,9 @@ class CouchdbStream(HttpStream, ABC):
             url_base (str): The base URL for the CouchDB instance.
             page_size (int): The number of records to fetch per page.
         """
-        self.__url_base = url_base
-        self.__page_size = page_size
-        return super().__init__(*args, **kwargs)
+        self._url_base = url_base
+        self._page_size = page_size
+        super().__init__(*args, **kwargs)
 
     @property
     def url_base(self) -> str:
@@ -38,7 +34,7 @@ class CouchdbStream(HttpStream, ABC):
         Returns:
             str: The base URL.
         """
-        return self.__url_base
+        return self._url_base
 
     def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
         """
@@ -53,16 +49,13 @@ class CouchdbStream(HttpStream, ABC):
         """
         response_json = response.json()
         offset = response_json.get("offset", 0)
-        total_fetched = offset + self.__page_size
-        try:
-            total_rows = response_json["total_rows"]
-        except KeyError:
+        total_fetched = offset + self._page_size
+        total_rows = response_json.get("total_rows")
+
+        if total_rows is None:
             raise KeyError("Response does not contain 'total_rows' field.")
-        if total_fetched < total_rows:
-            return {
-                "skip": total_fetched,
-            }
-        return None
+
+        return {"skip": total_fetched} if total_fetched < total_rows else None
 
     def request_params(
         self,
@@ -81,13 +74,10 @@ class CouchdbStream(HttpStream, ABC):
         Returns:
             MutableMapping[str, Any]: A dictionary of request parameters.
         """
-        base_params = {
-            "include_docs": True,
-            "limit": self.__page_size,
-        }
+        params = {"include_docs": True, "limit": self._page_size}
         if next_page_token:
-            base_params.update(next_page_token)
-        return base_params
+            params.update(next_page_token)
+        return params
 
     def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
         """
@@ -102,8 +92,7 @@ class CouchdbStream(HttpStream, ABC):
         response_json = response.json()
         if "rows" not in response_json:
             raise KeyError("Response does not contain 'rows' field.")
-        for row in response_json["rows"]:
-            yield row
+        return response_json["rows"]
 
 
 class Documents(CouchdbStream):
@@ -113,19 +102,9 @@ class Documents(CouchdbStream):
 
     primary_key = "id"
 
-    def path(
-        self,
-        stream_state: Mapping[str, Any] = None,
-        stream_slice: Mapping[str, Any] = None,
-        next_page_token: Mapping[str, Any] = None,
-    ) -> str:
+    def path(self, **kwargs) -> str:
         """
         Get the path for the API endpoint.
-
-        Args:
-            stream_state (Mapping[str, Any], optional): The current state of the stream. Defaults to None.
-            stream_slice (Mapping[str, Any], optional): A slice of the stream to fetch. Defaults to None.
-            next_page_token (Mapping[str, Any], optional): Token for the next page. Defaults to None.
 
         Returns:
             str: The API endpoint path.
@@ -141,6 +120,7 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
     state_checkpoint_interval = 1000
 
     @property
+    @abstractmethod
     def cursor_field(self) -> str:
         """
         Get the cursor field for incremental sync.
@@ -165,6 +145,7 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         pending = response_json.get("pending", 0)
         last_seq = response_json.get("last_seq")
         self.logger.info(f"Pending: {pending}")
+
         if pending > 0 and last_seq:
             return {"since": last_seq}
         return None
@@ -184,13 +165,12 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         Returns:
             Mapping[str, Any]: The updated stream state.
         """
-        current_cursor_value = current_stream_state.get(self.cursor_field, None)
+        current_cursor_value = current_stream_state.get(self.cursor_field)
         latest_cursor_value = latest_record.get("seq")
 
         if current_cursor_value is None:
             return {self.cursor_field: latest_cursor_value}
-        else:
-            return {self.cursor_field: max(latest_cursor_value, current_cursor_value)}
+        return {self.cursor_field: max(latest_cursor_value, current_cursor_value)}
 
     def request_params(
         self,
@@ -238,42 +218,32 @@ class DocumentsIncremental(IncrementalCouchdbStream):
     cursor_field = "seq"
     primary_key = "id"
 
-    def path(
-        self,
-        stream_state: Mapping[str, Any] = None,
-        stream_slice: Mapping[str, Any] = None,
-        next_page_token: Mapping[str, Any] = None,
-    ) -> str:
+    def path(self, **kwargs) -> str:
         """
         Get the path for the API endpoint.
-
-        Args:
-            stream_state (Mapping[str, Any], optional): The current state of the stream. Defaults to None.
-            stream_slice (Mapping[str, Any], optional): A slice of the stream to fetch. Defaults to None.
-            next_page_token (Mapping[str, Any], optional): Token for the next page. Defaults to None.
 
         Returns:
             str: The API endpoint path.
         """
         return "_changes"
 
-    def process_document(self, result, rows):
+    def process_document(self, result: Mapping[str, Any], rows: Iterable[Mapping[str, Any]]) -> Optional[Mapping[str, Any]]:
         """
         Process a single document from the bulk response.
 
         Args:
             result (Mapping[str, Any]): A result from the bulk response.
             rows (Iterable[Mapping[str, Any]]): The rows from the _changes response.
-            last_seq (str): The last sequence number from the _changes response.
 
         Returns:
             Optional[Mapping[str, Any]]: A processed document or None if the document is invalid.
         """
-        if "docs" not in result or not result["docs"]:
+        docs = result.get("docs", [])
+        if not docs:
             self.logger.warning(f"No 'docs' field in result: {result}")
             return None
 
-        doc = result["docs"][0].get("ok", {})
+        doc = docs[0].get("ok", {})
         if "_id" not in doc:
             self.logger.warning(f"Document missing '_id' field: {doc}")
             return None
@@ -284,8 +254,8 @@ class DocumentsIncremental(IncrementalCouchdbStream):
             return None
 
         return {
-            "id": doc.get("_id"),
-            "key": doc.get("_id"),
+            "id": doc["_id"],
+            "key": doc["_id"],
             "value": {"rev": doc.get("_rev")},
             "doc": doc,
             "seq": seq,
@@ -309,13 +279,11 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         bulk_docs = {"docs": [{"id": row["id"]} for row in rows]}
         url = f"{self.url_base}_bulk_get"
         bulk_response = self._session.post(url, json=bulk_docs)
-
         bulk_response.raise_for_status()
         bulk_docs_response = bulk_response.json()
 
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(self.process_document, result, rows) for result in bulk_docs_response["results"]]
-
             for future in as_completed(futures):
                 result = future.result()
                 if result is not None:
