@@ -17,14 +17,11 @@
       }
     },
     "doc": {
-      "type": ["object"],
-      "properties": {
-        "last_modified": {
-          "type": ["string"],
-          "format": "date-time"
-        }
-      },
-      "required": ["last_modified"]
+      "type": ["object"]
+    },
+    "last_modified": {
+      "type": ["string"],
+      "format": "date-time"
     }
   }
 }

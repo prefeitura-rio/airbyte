@@ -1,5 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 
+import datetime
 from abc import ABC
 from typing import Any, Iterable, Mapping, MutableMapping, Optional
 
@@ -171,6 +172,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         if "rows" not in response_json:
             raise KeyError("Response does not contain 'rows' field.")
         for row in response_json["rows"]:
+            row["last_modified"] = row["doc"].get("last_modified")
             yield row
 
     def path(
