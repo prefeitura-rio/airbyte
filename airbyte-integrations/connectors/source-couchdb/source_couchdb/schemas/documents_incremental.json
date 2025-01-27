@@ -26,6 +26,5 @@
       },
       "required": ["last_modified"]
     }
-  },
-  "required": ["id", "key", "value", "doc"]
+  }
 }

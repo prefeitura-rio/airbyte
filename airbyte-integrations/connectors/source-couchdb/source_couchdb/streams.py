@@ -163,21 +163,23 @@ class DocumentsIncremental(IncrementalCouchdbStream):
     # Define a chave primária para o stream
     primary_key = "key"
 
-    def path(self, **kwargs) -> str:
-        """
-        Retorna o caminho da API que será usado para buscar os documentos.
-        """
-        return "_all_docs"
-
     def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
         """
-        Parseia a resposta da API e retorna os registros.
+        :return an iterable containing each record in the response
         """
         response_json = response.json()
         if "rows" not in response_json:
             raise KeyError("Response does not contain 'rows' field.")
         for row in response_json["rows"]:
-            yield row["doc"]
+            yield row
+
+    def path(
+        self,
+        stream_state: Mapping[str, Any] = None,
+        stream_slice: Mapping[str, Any] = None,
+        next_page_token: Mapping[str, Any] = None,
+    ) -> str:
+        return "_all_docs"
 
     def stream_slices(self, stream_state: Mapping[str, Any] = None, **kwargs) -> Iterable[Optional[Mapping[str, Any]]]:
         """
