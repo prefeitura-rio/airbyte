@@ -9,24 +9,47 @@ import requests
 from airbyte_cdk.sources.streams.http import HttpStream
 
 
-# Basic full refresh stream
 class CouchdbStream(HttpStream, ABC):
+    """
+    A base class for CouchDB streams. This class provides common functionality for interacting with CouchDB APIs.
+
+    Attributes:
+        url_base (str): The base URL for the CouchDB instance.
+        page_size (int): The number of records to fetch per page.
+    """
+
     def __init__(self, url_base: str, page_size: int, *args, **kwargs):
+        """
+        Initialize the CouchdbStream.
+
+        Args:
+            url_base (str): The base URL for the CouchDB instance.
+            page_size (int): The number of records to fetch per page.
+        """
         self.__url_base = url_base
         self.__page_size = page_size
         return super().__init__(*args, **kwargs)
 
     @property
     def url_base(self) -> str:
+        """
+        Get the base URL for the CouchDB instance.
+
+        Returns:
+            str: The base URL.
+        """
         return self.__url_base
 
     def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
         """
         Builds query parameters needed to get the next page in the response.
 
-        :param response: the most recent response from the API
-        :return If there is another page in the result, a mapping (e.g: dict) containing information needed to query the next page in the response.
-                If there are no more pages in the result, return None.
+        Args:
+            response (requests.Response): The most recent response from the API.
+
+        Returns:
+            Optional[Mapping[str, Any]]: A mapping containing information needed to query the next page in the response.
+                                         If there are no more pages, return None.
         """
         response_json = response.json()
         offset = response_json.get("offset", 0)
@@ -44,9 +67,20 @@ class CouchdbStream(HttpStream, ABC):
     def request_params(
         self,
         stream_state: Mapping[str, Any],
-        stream_slice: Mapping[str, any] = None,
+        stream_slice: Mapping[str, Any] = None,
         next_page_token: Mapping[str, Any] = None,
     ) -> MutableMapping[str, Any]:
+        """
+        Build request parameters for the API call.
+
+        Args:
+            stream_state (Mapping[str, Any]): The current state of the stream.
+            stream_slice (Mapping[str, Any], optional): A slice of the stream to fetch. Defaults to None.
+            next_page_token (Mapping[str, Any], optional): Token for the next page. Defaults to None.
+
+        Returns:
+            MutableMapping[str, Any]: A dictionary of request parameters.
+        """
         base_params = {
             "include_docs": True,
             "limit": self.__page_size,
@@ -57,7 +91,13 @@ class CouchdbStream(HttpStream, ABC):
 
     def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
         """
-        :return an iterable containing each record in the response
+        Parse the API response and yield each record.
+
+        Args:
+            response (requests.Response): The API response.
+
+        Returns:
+            Iterable[Mapping]: An iterable containing each record in the response.
         """
         response_json = response.json()
         if "rows" not in response_json:
@@ -67,6 +107,10 @@ class CouchdbStream(HttpStream, ABC):
 
 
 class Documents(CouchdbStream):
+    """
+    A stream for fetching all documents from a CouchDB database.
+    """
+
     primary_key = "id"
 
     def path(
@@ -75,25 +119,47 @@ class Documents(CouchdbStream):
         stream_slice: Mapping[str, Any] = None,
         next_page_token: Mapping[str, Any] = None,
     ) -> str:
+        """
+        Get the path for the API endpoint.
+
+        Args:
+            stream_state (Mapping[str, Any], optional): The current state of the stream. Defaults to None.
+            stream_slice (Mapping[str, Any], optional): A slice of the stream to fetch. Defaults to None.
+            next_page_token (Mapping[str, Any], optional): Token for the next page. Defaults to None.
+
+        Returns:
+            str: The API endpoint path.
+        """
         return "_all_docs"
 
 
-# Basic incremental stream
 class IncrementalCouchdbStream(CouchdbStream, ABC):
+    """
+    A base class for incremental CouchDB streams. This class provides functionality for incremental syncs.
+    """
+
     state_checkpoint_interval = 1000
 
     @property
     def cursor_field(self) -> str:
         """
-        Retorna o campo que será usado como cursor para a sincronização incremental.
-        Este campo deve ser um campo que aumenta monotonicamente, como um timestamp ou um ID.
+        Get the cursor field for incremental sync.
+
+        Returns:
+            str: The cursor field name.
         """
         raise NotImplementedError("Subclasses should implement this method to return the cursor field.")
 
     def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
         """
-        _changes api  uses the last_seq to control the pagination
-        if pending is not 0 there are more data, return the next_page_token.
+        Builds query parameters needed to get the next page in the response for incremental sync.
+
+        Args:
+            response (requests.Response): The most recent response from the API.
+
+        Returns:
+            Optional[Mapping[str, Any]]: A mapping containing information needed to query the next page in the response.
+                                         If there are no more pages, return None.
         """
         response_json = response.json()
         pending = response_json.get("pending", 0)
@@ -109,7 +175,14 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         latest_record: Mapping[str, Any],
     ) -> Mapping[str, Any]:
         """
-        Updates the stream state based on the most recent record.
+        Update the stream state based on the most recent record.
+
+        Args:
+            current_stream_state (MutableMapping[str, Any]): The current state of the stream.
+            latest_record (Mapping[str, Any]): The most recent record fetched.
+
+        Returns:
+            Mapping[str, Any]: The updated stream state.
         """
         current_cursor_value = current_stream_state.get(self.cursor_field, None)
         latest_cursor_value = latest_record.get("last_seq")
@@ -126,7 +199,15 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         next_page_token: Mapping[str, Any] = None,
     ) -> MutableMapping[str, Any]:
         """
-        Adds query parameters to support incremental sync with _changes.
+        Build request parameters for the API call for incremental sync.
+
+        Args:
+            stream_state (Mapping[str, Any]): The current state of the stream.
+            stream_slice (Mapping[str, Any], optional): A slice of the stream to fetch. Defaults to None.
+            next_page_token (Mapping[str, Any], optional): Token for the next page. Defaults to None.
+
+        Returns:
+            MutableMapping[str, Any]: A dictionary of request parameters.
         """
         params = super().request_params(stream_state, stream_slice, next_page_token)
         if stream_state:
@@ -136,7 +217,14 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
 
     def _send_request(self, request: requests.PreparedRequest, request_kwargs: Mapping[str, Any]) -> requests.Response:
         """
-        Sends the request and logs the url.
+        Send the request and log the URL.
+
+        Args:
+            request (requests.PreparedRequest): The prepared request to send.
+            request_kwargs (Mapping[str, Any]): Additional keyword arguments for the request.
+
+        Returns:
+            requests.Response: The response from the API.
         """
         self.logger.info(f"Request URL: {request.url}")
         return super()._send_request(request, request_kwargs)
@@ -144,13 +232,10 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
 
 class DocumentsIncremental(IncrementalCouchdbStream):
     """
-    Stream incremental para documentos no CouchDB usando _changes.
+    An incremental stream for fetching documents from a CouchDB database using the _changes API.
     """
 
-    # Define o campo que será usado como cursor para a sincronização incremental
     cursor_field = "last_seq"
-
-    # Define a chave primária para o stream
     primary_key = "id"
 
     def path(
@@ -159,20 +244,40 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         stream_slice: Mapping[str, Any] = None,
         next_page_token: Mapping[str, Any] = None,
     ) -> str:
+        """
+        Get the path for the API endpoint.
+
+        Args:
+            stream_state (Mapping[str, Any], optional): The current state of the stream. Defaults to None.
+            stream_slice (Mapping[str, Any], optional): A slice of the stream to fetch. Defaults to None.
+            next_page_token (Mapping[str, Any], optional): Token for the next page. Defaults to None.
+
+        Returns:
+            str: The API endpoint path.
+        """
         return "_changes"
 
     def process_document(self, result, rows, last_seq):
+        """
+        Process a single document from the bulk response.
+
+        Args:
+            result (Mapping[str, Any]): A result from the bulk response.
+            rows (Iterable[Mapping[str, Any]]): The rows from the _changes response.
+            last_seq (str): The last sequence number from the _changes response.
+
+        Returns:
+            Optional[Mapping[str, Any]]: A processed document or None if the document is invalid.
+        """
         if "docs" not in result or not result["docs"]:
             self.logger.warning(f"No 'docs' field in result: {result}")
             return None
 
-        # Extract the document from the nested structure
         doc = result["docs"][0].get("ok", {})
         if "_id" not in doc:
             self.logger.warning(f"Document missing '_id' field: {doc}")
             return None
 
-        # Match the document with the corresponding row to get the sequence number
         seq = next((row["seq"] for row in rows if row["id"] == doc["_id"]), None)
         if seq is None:
             self.logger.warning(f"No matching row found for document: {doc}")
@@ -188,13 +293,21 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         }
 
     def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
+        """
+        Parse the API response and yield each record.
+
+        Args:
+            response (requests.Response): The API response.
+
+        Returns:
+            Iterable[Mapping]: An iterable containing each record in the response.
+        """
         response_json = response.json()
         if "results" not in response_json:
             raise KeyError("Response does not contain 'results' field.")
         last_seq = response_json["last_seq"]
         rows = response_json["results"]
 
-        # Prepare bulk request
         bulk_docs = {"docs": [{"id": row["id"]} for row in rows]}
         url = f"{self.url_base}_bulk_get"
         bulk_response = self._session.post(url, json=bulk_docs)
@@ -202,7 +315,6 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         bulk_response.raise_for_status()
         bulk_docs_response = bulk_response.json()
 
-        # Use ThreadPoolExecutor to process documents in parallel
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(self.process_document, result, rows, last_seq) for result in bulk_docs_response["results"]]
 
@@ -213,7 +325,12 @@ class DocumentsIncremental(IncrementalCouchdbStream):
 
     def stream_slices(self, stream_state: Mapping[str, Any] = None, **kwargs) -> Iterable[Optional[Mapping[str, Any]]]:
         """
-        Define os slices para o stream. Neste caso, não precisamos de slices específicos,
-        então retornamos um único slice vazio.
+        Define slices for the stream. In this case, no specific slices are needed.
+
+        Args:
+            stream_state (Mapping[str, Any], optional): The current state of the stream. Defaults to None.
+
+        Returns:
+            Iterable[Optional[Mapping[str, Any]]]: A list of stream slices.
         """
         return [None]
