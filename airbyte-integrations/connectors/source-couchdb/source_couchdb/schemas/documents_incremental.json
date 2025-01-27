@@ -18,6 +18,12 @@
     },
     "doc": {
       "type": ["object"]
+    },
+    "seq": {
+      "type": ["string"]
+    },
+    "last_seq": {
+      "type": ["string"]
     }
   }
 }

@@ -1,6 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 
-import datetime
 from abc import ABC
 from typing import Any, Iterable, Mapping, MutableMapping, Optional
 
@@ -170,11 +169,26 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         response_json = response.json()
         if "results" not in response_json:
             raise KeyError("Response does not contain 'results' field.")
-
         last_seq = response_json["last_seq"]
         for row in response_json["results"]:
-            row["last_seq"] = last_seq
-            yield row
+            yield self._fetch_document(row=row, last_seq=last_seq)
+
+    def _fetch_document(self, row: Mapping, last_seq: str = None) -> Mapping:
+        doc_id = row["id"]
+        url = f"{self.url_base}{doc_id}"
+        self.logger.info(f"Fetching document: {url}")
+        response = self._session.get(url)
+        response.raise_for_status()
+        doc = response.json()
+
+        return {
+            "id": doc.get("_id"),
+            "key": doc.get("_id"),
+            "value": {"rev": doc.get("_rev")},
+            "doc": doc,
+            "seq": row.get("seq"),
+            "last_seq": last_seq,
+        }
 
     def stream_slices(self, stream_state: Mapping[str, Any] = None, **kwargs) -> Iterable[Optional[Mapping[str, Any]]]:
         """
