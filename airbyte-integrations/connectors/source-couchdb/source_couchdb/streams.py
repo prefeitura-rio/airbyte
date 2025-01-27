@@ -120,6 +120,12 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         """
         raise NotImplementedError("Subclasses should implement this method to return the cursor field.")
 
+    def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
+        """
+        _changes api does not use pagination.
+        """
+        return None
+
     def get_updated_state(
         self,
         current_stream_state: MutableMapping[str, Any],

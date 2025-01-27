@@ -18,10 +18,6 @@
     },
     "doc": {
       "type": ["object"]
-    },
-    "last_modified": {
-      "type": ["string"],
-      "format": "date-time"
     }
   }
 }
