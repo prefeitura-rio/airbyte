@@ -145,7 +145,6 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         pending = response_json.get("pending", 0)
         last_seq = response_json.get("last_seq")
         self.logger.info(f"Pending: {pending}")
-        # self.logger.info(f"last_seq: {last_seq}")
         if pending > 0 and last_seq:
             return {"since": last_seq}
         return None
@@ -167,9 +166,6 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         """
         current_cursor_value = current_stream_state.get(self.cursor_field)
         latest_cursor_value = latest_record.get(self.cursor_field)
-
-        # self.logger.info(f"current_cursor_value: {current_cursor_value}")
-        self.logger.info(f"latest_cursor_value: {latest_cursor_value}")
 
         if current_cursor_value is None:
             return {self.cursor_field: latest_cursor_value}
@@ -194,7 +190,9 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         """
         params = super().request_params(stream_state, stream_slice, next_page_token)
         params["feed"] = "normal"
-        if stream_state:
+        if next_page_token:
+            params["since"] = next_page_token.get("since")
+        elif stream_state.get(self.cursor_field):
             params["since"] = stream_state.get(self.cursor_field)
         return params
 
