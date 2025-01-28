@@ -145,7 +145,7 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         pending = response_json.get("pending", 0)
         last_seq = response_json.get("last_seq")
         self.logger.info(f"Pending: {pending}")
-
+        # self.logger.info(f"last_seq: {last_seq}")
         if pending > 0 and last_seq:
             return {"since": last_seq}
         return None
@@ -166,7 +166,10 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
             Mapping[str, Any]: The updated stream state.
         """
         current_cursor_value = current_stream_state.get(self.cursor_field)
-        latest_cursor_value = latest_record.get("seq")
+        latest_cursor_value = latest_record.get(self.cursor_field)
+
+        # self.logger.info(f"current_cursor_value: {current_cursor_value}")
+        self.logger.info(f"latest_cursor_value: {latest_cursor_value}")
 
         if current_cursor_value is None:
             return {self.cursor_field: latest_cursor_value}
@@ -190,9 +193,9 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
             MutableMapping[str, Any]: A dictionary of request parameters.
         """
         params = super().request_params(stream_state, stream_slice, next_page_token)
+        params["feed"] = "normal"
         if stream_state:
             params["since"] = stream_state.get(self.cursor_field)
-        params["feed"] = "normal"
         return params
 
     def _send_request(self, request: requests.PreparedRequest, request_kwargs: Mapping[str, Any]) -> requests.Response:
@@ -215,7 +218,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
     An incremental stream for fetching documents from a CouchDB database using the _changes API.
     """
 
-    cursor_field = "seq"
+    cursor_field = "last_seq"
     primary_key = "id"
 
     def path(self, **kwargs) -> str:
@@ -227,13 +230,19 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         """
         return "_changes"
 
-    def process_document(self, result: Mapping[str, Any], rows: Iterable[Mapping[str, Any]]) -> Optional[Mapping[str, Any]]:
+    def process_document(
+        self,
+        result: Mapping[str, Any],
+        rows: Iterable[Mapping[str, Any]],
+        last_seq: str,
+    ) -> Optional[Mapping[str, Any]]:
         """
         Process a single document from the bulk response.
 
         Args:
             result (Mapping[str, Any]): A result from the bulk response.
             rows (Iterable[Mapping[str, Any]]): The rows from the _changes response.
+            last_seq (str): The last sequence number from the _changes response.
 
         Returns:
             Optional[Mapping[str, Any]]: A processed document or None if the document is invalid.
@@ -259,6 +268,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
             "value": {"rev": doc.get("_rev")},
             "doc": doc,
             "seq": seq,
+            "last_seq": last_seq,
         }
 
     def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
@@ -274,6 +284,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         response_json = response.json()
         if "results" not in response_json:
             raise KeyError("Response does not contain 'results' field.")
+        last_seq = response_json.get("last_seq")
         rows = response_json["results"]
 
         bulk_docs = {"docs": [{"id": row["id"]} for row in rows]}
@@ -283,7 +294,7 @@ class DocumentsIncremental(IncrementalCouchdbStream):
         bulk_docs_response = bulk_response.json()
 
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(self.process_document, result, rows) for result in bulk_docs_response["results"]]
+            futures = [executor.submit(self.process_document, result, rows, last_seq) for result in bulk_docs_response["results"]]
             for future in as_completed(futures):
                 result = future.result()
                 if result is not None:

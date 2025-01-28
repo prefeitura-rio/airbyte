@@ -21,6 +21,9 @@
     },
     "seq": {
       "type": ["string"]
+    },
+    "last_seq": {
+      "type": ["string"]
     }
   }
 }
