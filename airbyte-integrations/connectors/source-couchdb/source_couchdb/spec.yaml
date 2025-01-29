@@ -8,6 +8,7 @@ connectionSpecification:
     - port
     - username
     - password
+    - database
   properties:
     host:
       type: string
@@ -30,6 +31,11 @@ connectionSpecification:
       airbyte_secret: true
       examples:
         - password
+    database:
+      type: string
+      description: The database to read data from.
+      examples:
+        - my_database
     pageSize:
       type: integer
       description: The number of records to fetch in a single request.
