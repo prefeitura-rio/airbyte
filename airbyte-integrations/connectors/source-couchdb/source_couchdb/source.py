@@ -19,7 +19,7 @@ class SourceCouchdb(AbstractSource):
 
     def check_connection(self, logger, config) -> Tuple[bool, any]:
         """
-        Connection check to validate that the user-provided config can be used to connect to the underlying API and access the specified database.
+        Connection check to validate that the user-provided config can be used to connect to the underlying API.
 
         :param config:  the user-input config object conforming to the connector's spec.yaml
         :param logger:  logger object
@@ -30,7 +30,6 @@ class SourceCouchdb(AbstractSource):
             port = config["port"]
             username = config["username"]
             password = config["password"]
-            database = config["database"]
             tls = config.get("tls", False)
             trust_certificate = config.get("trustCertificate", False)
 
@@ -50,27 +49,6 @@ class SourceCouchdb(AbstractSource):
                 logger.info("Successfully connected to CouchDB server.")
             else:
                 return False, "Unexpected response from the CouchDB server."
-
-            # Check access to the specified database
-            db_url = f"{base_url}/{database}"
-            db_response = requests.get(db_url, auth=auth, timeout=timeout, verify=not trust_certificate)
-
-            if db_response.status_code == 200:
-                logger.info(f"Successfully accessed the database: {database}.")
-                return True, None
-            elif db_response.status_code == 404:
-                return False, f"Error: Database '{database}' not found."
-            elif db_response.status_code == 403:
-                return (
-                    False,
-                    f"Error: Access to database '{database}' is forbidden. Check your credentials.",
-                )
-            else:
-                return (
-                    False,
-                    f"Unexpected response when accessing database '{database}': {db_response.status_code} {db_response.reason}",
-                )
-
         except SSLError:
             return (
                 False,
@@ -100,7 +78,6 @@ class SourceCouchdb(AbstractSource):
             port = config["port"]
             username = config["username"]
             password = config["password"]
-            database = config["database"]
             page_size = config.get("pageSize", 1000)
             tls = config.get("tls", False)
             trust_certificate = config.get("trustCertificate", False)
@@ -109,19 +86,35 @@ class SourceCouchdb(AbstractSource):
 
         authenticator = BasicHttpAuthenticator(username=username, password=password)
         base_url = self.get_base_url(tls=tls, host=host, port=port)
-        url_base = f"{base_url}/{database}/"
 
-        return [
-            Documents(
-                url_base=url_base,
-                page_size=page_size,
-                trust_certificate=trust_certificate,
-                authenticator=authenticator,
-            ),
-            DocumentsIncremental(
-                url_base=url_base,
-                page_size=page_size,
-                trust_certificate=trust_certificate,
-                authenticator=authenticator,
-            ),
-        ]
+        # List existing databases
+        response = requests.get(f"{base_url}/_all_dbs", auth=authenticator)
+        response.raise_for_status()
+        databases = response.json()
+        databases = [db for db in databases if not db.startswith("_")]
+
+        # Dinamically generate streams for each database
+        streams = []
+        for database in databases:
+            url_base = f"{base_url}/{database}/"
+            class_name_base = f"{database.capitalize()}"
+            subclass_full = type(class_name_base, (Documents,))
+            streams.append(
+                subclass_full(
+                    url_base=url_base,
+                    page_size=page_size,
+                    trust_certificate=trust_certificate,
+                    authenticator=authenticator,
+                )
+            )
+            subclass_incremental = type(f"{class_name_base}Incremental", (DocumentsIncremental,))
+            streams.append(
+                subclass_incremental(
+                    url_base=url_base,
+                    page_size=page_size,
+                    trust_certificate=trust_certificate,
+                    authenticator=authenticator,
+                )
+            )
+
+        return streams
