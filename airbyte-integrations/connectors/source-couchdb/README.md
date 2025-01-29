@@ -110,3 +110,8 @@ You've checked out the repo, implemented a million dollar feature, and you're re
 2. `docker buildx create --use --name mybuilder`
 3. `docker buildx inspect --bootstrap`
 4. `docker buildx build --platform linux/amd64 -t d116626/airbyte-source-couchdb:0.1.5 --push .`
+
+## Port Forwarding
+
+1. `gcloud container clusters get-credentials application --project rj-crm-registry --region=us-central1`
+2. `kubectl port-forward -n couchdb svc/couchdb-couchdb 5984:5984`

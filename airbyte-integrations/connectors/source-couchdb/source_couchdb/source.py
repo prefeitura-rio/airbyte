@@ -14,6 +14,9 @@ from .streams import Documents, DocumentsIncremental
 
 
 class SourceCouchdb(AbstractSource):
+    def get_base_url(self, tls: bool, host: str, port: int) -> str:
+        return f"https://{host}:{port}" if tls else f"http://{host}:{port}"
+
     def check_connection(self, logger, config) -> Tuple[bool, any]:
         """
         Connection check to validate that the user-provided config can be used to connect to the underlying API and access the specified database.
@@ -28,16 +31,19 @@ class SourceCouchdb(AbstractSource):
             username = config["username"]
             password = config["password"]
             database = config["database"]
+            tls = config.get("tls", False)
+            trust_certificate = config.get("trust_certificate", False)
+
         except KeyError as e:
             return False, f"KeyError: {str(e)} is required."
 
         try:
             timeout = 60  # seconds
             auth = (username, password) if username and password else None
-            base_url = f"http://{host}:{port}"
+            base_url = self.get_base_url(tls=tls, host=host, port=port)
 
             # Check connection to the CouchDB server
-            response = requests.get(base_url, auth=auth, timeout=timeout)
+            response = requests.get(base_url, auth=auth, timeout=timeout, verify=not trust_certificate)
             response.raise_for_status()
 
             if response.status_code == 200 and "couchdb" in response.json():
@@ -91,11 +97,13 @@ class SourceCouchdb(AbstractSource):
             password = config["password"]
             database = config["database"]
             page_size = config.get("pageSize", 1000)
+            tls = config.get("tls", False)
+            trust_certificate = config.get("trust_certificate", False)
         except KeyError as e:
             raise KeyError(f"KeyError: {str(e)} is required.")
 
         authenticator = BasicHttpAuthenticator(username=username, password=password)
-        url_base = f"http://{host}:{port}/{database}/"
+        url_base = self.get_base_url(tls=tls, host=host, port=port)
 
         return [
             Documents(url_base=url_base, page_size=page_size, authenticator=authenticator),
