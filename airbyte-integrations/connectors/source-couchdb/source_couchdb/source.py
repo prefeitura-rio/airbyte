@@ -108,9 +108,20 @@ class SourceCouchdb(AbstractSource):
             raise KeyError(f"KeyError: {str(e)} is required.")
 
         authenticator = BasicHttpAuthenticator(username=username, password=password)
-        url_base = self.get_base_url(tls=tls, host=host, port=port)
+        base_url = self.get_base_url(tls=tls, host=host, port=port)
+        url_base = f"{base_url}/{database}/"
 
         return [
-            Documents(url_base=url_base, page_size=page_size, trust_certificate=trust_certificate, authenticator=authenticator),
-            DocumentsIncremental(url_base=url_base, page_size=page_size, trust_certificate=trust_certificate, authenticator=authenticator),
+            Documents(
+                url_base=url_base,
+                page_size=page_size,
+                trust_certificate=trust_certificate,
+                authenticator=authenticator,
+            ),
+            DocumentsIncremental(
+                url_base=url_base,
+                page_size=page_size,
+                trust_certificate=trust_certificate,
+                authenticator=authenticator,
+            ),
         ]
