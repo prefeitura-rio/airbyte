@@ -14,7 +14,7 @@ class CouchdbStream(HttpStream, ABC):
     A base class for CouchDB streams. This class provides common functionality for interacting with CouchDB APIs.
     """
 
-    def __init__(self, url_base: str, page_size: int, *args, **kwargs):
+    def __init__(self, url_base: str, page_size: int, trust_certificate: bool, *args, **kwargs):
         """
         Initialize the CouchdbStream.
 
@@ -24,6 +24,7 @@ class CouchdbStream(HttpStream, ABC):
         """
         self._url_base = url_base
         self._page_size = page_size
+        self._trust_certificate = trust_certificate
         super().__init__(*args, **kwargs)
 
     @property
@@ -93,6 +94,22 @@ class CouchdbStream(HttpStream, ABC):
         if "rows" not in response_json:
             raise KeyError("Response does not contain 'rows' field.")
         return response_json["rows"]
+
+    def _send_request(self, request: requests.PreparedRequest, request_kwargs: Mapping[str, Any]) -> requests.Response:
+        """
+        Send the request and log the URL.
+
+        Args:
+            request (requests.PreparedRequest): The prepared request to send.
+            request_kwargs (Mapping[str, Any]): Additional keyword arguments for the request.
+
+        Returns:
+            requests.Response: The response from the API.
+        """
+        self.logger.info(f"Request URL: {request.url}")
+        if self._trust_certificate:
+            request_kwargs["verify"] = not self._trust_certificate
+        return super()._send_request(request, request_kwargs)
 
 
 class Documents(CouchdbStream):
@@ -195,20 +212,6 @@ class IncrementalCouchdbStream(CouchdbStream, ABC):
         elif stream_state.get(self.cursor_field):
             params["since"] = stream_state.get(self.cursor_field)
         return params
-
-    def _send_request(self, request: requests.PreparedRequest, request_kwargs: Mapping[str, Any]) -> requests.Response:
-        """
-        Send the request and log the URL.
-
-        Args:
-            request (requests.PreparedRequest): The prepared request to send.
-            request_kwargs (Mapping[str, Any]): Additional keyword arguments for the request.
-
-        Returns:
-            requests.Response: The response from the API.
-        """
-        self.logger.info(f"Request URL: {request.url}")
-        return super()._send_request(request, request_kwargs)
 
 
 class DocumentsIncremental(IncrementalCouchdbStream):

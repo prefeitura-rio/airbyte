@@ -4,7 +4,7 @@
 from typing import Any, List, Mapping, Tuple
 
 import requests
-from requests.exceptions import ConnectionError, HTTPError, Timeout
+from requests.exceptions import ConnectionError, HTTPError, SSLError, Timeout
 
 from airbyte_cdk.sources import AbstractSource
 from airbyte_cdk.sources.streams import Stream
@@ -32,7 +32,7 @@ class SourceCouchdb(AbstractSource):
             password = config["password"]
             database = config["database"]
             tls = config.get("tls", False)
-            trust_certificate = config.get("trust_certificate", False)
+            trust_certificate = config.get("trustCertificate", False)
 
         except KeyError as e:
             return False, f"KeyError: {str(e)} is required."
@@ -53,7 +53,7 @@ class SourceCouchdb(AbstractSource):
 
             # Check access to the specified database
             db_url = f"{base_url}/{database}"
-            db_response = requests.get(db_url, auth=auth, timeout=timeout)
+            db_response = requests.get(db_url, auth=auth, timeout=timeout, verify=not trust_certificate)
 
             if db_response.status_code == 200:
                 logger.info(f"Successfully accessed the database: {database}.")
@@ -71,6 +71,11 @@ class SourceCouchdb(AbstractSource):
                     f"Unexpected response when accessing database '{database}': {db_response.status_code} {db_response.reason}",
                 )
 
+        except SSLError:
+            return (
+                False,
+                "Error: SSL certificate verification failed. Check if the server's certificate is valid or disable SSL certificate verification.",
+            )
         except ConnectionError:
             return (
                 False,
@@ -98,7 +103,7 @@ class SourceCouchdb(AbstractSource):
             database = config["database"]
             page_size = config.get("pageSize", 1000)
             tls = config.get("tls", False)
-            trust_certificate = config.get("trust_certificate", False)
+            trust_certificate = config.get("trustCertificate", False)
         except KeyError as e:
             raise KeyError(f"KeyError: {str(e)} is required.")
 
@@ -106,6 +111,6 @@ class SourceCouchdb(AbstractSource):
         url_base = self.get_base_url(tls=tls, host=host, port=port)
 
         return [
-            Documents(url_base=url_base, page_size=page_size, authenticator=authenticator),
-            DocumentsIncremental(url_base=url_base, page_size=page_size, authenticator=authenticator),
+            Documents(url_base=url_base, page_size=page_size, trust_certificate=trust_certificate, authenticator=authenticator),
+            DocumentsIncremental(url_base=url_base, page_size=page_size, trust_certificate=trust_certificate, authenticator=authenticator),
         ]
