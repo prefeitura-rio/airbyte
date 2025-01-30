@@ -3,9 +3,10 @@
 #
 
 
-from airbyte_cdk.models import SyncMode
 from pytest import fixture
 from source_couchdb.source import IncrementalCouchdbStream
+
+from airbyte_cdk.models import SyncMode
 
 
 @fixture

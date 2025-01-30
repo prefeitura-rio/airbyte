@@ -1,16 +1,19 @@
 #
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 #
+import json
+from pathlib import Path
 from typing import Any, List, Mapping, Tuple
 
 import requests
 from requests.exceptions import ConnectionError, HTTPError, SSLError, Timeout
 
+import source_couchdb
 from airbyte_cdk.sources import AbstractSource
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.sources.streams.http.requests_native_auth import BasicHttpAuthenticator
 
-from .streams import Documents, DocumentsIncremental
+from .streams import DocumentsIncremental
 
 
 class SourceCouchdb(AbstractSource):
@@ -19,7 +22,7 @@ class SourceCouchdb(AbstractSource):
 
     def check_connection(self, logger, config) -> Tuple[bool, any]:
         """
-        Connection check to validate that the user-provided config can be used to connect to the underlying API and access the specified database.
+        Connection check to validate that the user-provided config can be used to connect to the underlying API.
 
         :param config:  the user-input config object conforming to the connector's spec.yaml
         :param logger:  logger object
@@ -30,7 +33,6 @@ class SourceCouchdb(AbstractSource):
             port = config["port"]
             username = config["username"]
             password = config["password"]
-            database = config["database"]
             tls = config.get("tls", False)
             trust_certificate = config.get("trustCertificate", False)
 
@@ -48,29 +50,9 @@ class SourceCouchdb(AbstractSource):
 
             if response.status_code == 200 and "couchdb" in response.json():
                 logger.info("Successfully connected to CouchDB server.")
+                return True, None
             else:
                 return False, "Unexpected response from the CouchDB server."
-
-            # Check access to the specified database
-            db_url = f"{base_url}/{database}"
-            db_response = requests.get(db_url, auth=auth, timeout=timeout, verify=not trust_certificate)
-
-            if db_response.status_code == 200:
-                logger.info(f"Successfully accessed the database: {database}.")
-                return True, None
-            elif db_response.status_code == 404:
-                return False, f"Error: Database '{database}' not found."
-            elif db_response.status_code == 403:
-                return (
-                    False,
-                    f"Error: Access to database '{database}' is forbidden. Check your credentials.",
-                )
-            else:
-                return (
-                    False,
-                    f"Unexpected response when accessing database '{database}': {db_response.status_code} {db_response.reason}",
-                )
-
         except SSLError:
             return (
                 False,
@@ -100,7 +82,6 @@ class SourceCouchdb(AbstractSource):
             port = config["port"]
             username = config["username"]
             password = config["password"]
-            database = config["database"]
             page_size = config.get("pageSize", 1000)
             tls = config.get("tls", False)
             trust_certificate = config.get("trustCertificate", False)
@@ -109,19 +90,38 @@ class SourceCouchdb(AbstractSource):
 
         authenticator = BasicHttpAuthenticator(username=username, password=password)
         base_url = self.get_base_url(tls=tls, host=host, port=port)
-        url_base = f"{base_url}/{database}/"
 
-        return [
-            Documents(
-                url_base=url_base,
-                page_size=page_size,
-                trust_certificate=trust_certificate,
-                authenticator=authenticator,
-            ),
-            DocumentsIncremental(
-                url_base=url_base,
-                page_size=page_size,
-                trust_certificate=trust_certificate,
-                authenticator=authenticator,
-            ),
-        ]
+        # List existing databases
+        response = requests.get(f"{base_url}/_all_dbs", auth=authenticator)
+        response.raise_for_status()
+        databases = response.json()
+        databases = [db for db in databases if not db.startswith("_")]
+
+        # Dinamically generate streams for each database
+        schemas_path = Path(source_couchdb.__file__).parent / "schemas"
+        output_schemas_path = Path("/usr/local/lib/python3.9/schemas")  # TODO: change to a dynamic path
+        with open(schemas_path / "documents_incremental.json", "r") as f:
+            schema_incremental = json.load(f)
+        streams = []
+        for database in databases:
+            url_base = f"{base_url}/{database}/"
+            class_name_base = f"{database.capitalize()}"
+
+            # Generate schema for the incremental stream
+            fname = output_schemas_path / f"{database}.json"
+            fname.parent.mkdir(parents=True, exist_ok=True)
+            with open(fname, "w") as f:
+                json.dump(schema_incremental, f, indent=2)
+
+            # Generate incremental stream
+            subclass_incremental = type(class_name_base, (DocumentsIncremental,), {"_url_base": url_base})
+            streams.append(
+                subclass_incremental(
+                    url_base=url_base,
+                    page_size=page_size,
+                    trust_certificate=trust_certificate,
+                    authenticator=authenticator,
+                )
+            )
+
+        return streams
