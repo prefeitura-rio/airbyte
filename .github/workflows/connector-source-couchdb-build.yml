@@ -1,0 +1,57 @@
+name: Build and Push CouchDB Source Connector Docker Image
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/connector-source-couchdb-build.yml"
+      - "airbyte-integrations/connectors/source-couchdb/**"
+  push:
+    tags:
+      - "*.*.*"
+    paths:
+      - ".github/workflows/connector-source-couchdb-build.yml"
+      - "airbyte-integrations/connectors/source-couchdb/**"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
+
+      - name: Extract metadata for Docker tags
+        id: meta
+        run: |
+          IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/airbyte-source-couchdb"
+          
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUMBER=${{ github.event.pull_request.number }}
+            COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")
+            TAGS="pr-$PR_NUMBER,pr-$PR_NUMBER-$COMMIT_HASH"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            TAGS="${GITHUB_REF#refs/tags/}"
+          fi
+
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "TAGS=$TAGS" >> $GITHUB_ENV
+
+      - name: Build and tag Docker image
+        run: |
+          cd airbyte-integrations/connectors/source-couchdb
+          for TAG in $(echo $TAGS | tr "," "\n"); do
+            docker build -t $IMAGE_NAME:$TAG .
+          done
+
+      - name: Push Docker image
+        run: |
+          for TAG in $(echo $TAGS | tr "," "\n"); do
+            docker push $IMAGE_NAME:$TAG
+          done
