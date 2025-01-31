@@ -31,7 +31,7 @@ jobs:
         id: meta
         run: |
           IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/airbyte-source-couchdb"
-          
+
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             PR_NUMBER=${{ github.event.pull_request.number }}
             COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")
