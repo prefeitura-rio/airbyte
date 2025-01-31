@@ -92,7 +92,7 @@ class SourceCouchdb(AbstractSource):
         base_url = self.get_base_url(tls=tls, host=host, port=port)
 
         # List existing databases
-        response = requests.get(f"{base_url}/_all_dbs", auth=authenticator)
+        response = requests.get(f"{base_url}/_all_dbs", auth=authenticator, verify=not trust_certificate)
         response.raise_for_status()
         databases = response.json()
         databases = [db for db in databases if not db.startswith("_")]
