@@ -1,6 +1,6 @@
 # Couchdb Source
 
-This is the repository for the Couchdb source connector, written in Python.
+This is the repository for the Couchdb source connector, written in Python
 For information about how to use this connector within Airbyte, see [the documentation](https://docs.airbyte.com/integrations/sources/couchdb).
 
 ## Local development
