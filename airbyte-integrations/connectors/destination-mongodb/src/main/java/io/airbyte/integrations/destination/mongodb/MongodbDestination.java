@@ -154,39 +154,59 @@ public class MongodbDestination extends BaseConnector implements Destination {
   }
 
   private String buildConnectionString(final JsonNode config, final String credentials) {
-    final StringBuilder connectionStrBuilder = new StringBuilder();
-
     final JsonNode instanceConfig = config.get(MongoUtils.INSTANCE_TYPE);
     final var instance = MongoUtils.MongoInstanceType.fromValue(instanceConfig.get(MongoUtils.INSTANCE).asText());
 
-    switch (instance) {
-      case STANDALONE -> {
-        // if there is no TLS present in spec, TLS should be enabled by default for strict encryption
-        final var tls = !instanceConfig.has(JdbcUtils.TLS_KEY) || instanceConfig.get(JdbcUtils.TLS_KEY).asBoolean();
-        connectionStrBuilder.append(
-            String.format(MongoUtils.MONGODB_SERVER_URL, credentials, instanceConfig.get(JdbcUtils.HOST_KEY).asText(),
+    LOGGER.info("Instance of type {}", instance);
+    
+    return switch (instance) {
+        case STANDALONE -> {
+            final var tls = !instanceConfig.has(JdbcUtils.TLS_KEY) || instanceConfig.get(JdbcUtils.TLS_KEY).asBoolean();
+            LOGGER.info("Base template: {}", MongoUtils.MONGODB_SERVER_URL);
+            LOGGER.info("Credentials: {}", credentials);
+            LOGGER.info("Host: {}", instanceConfig.get(JdbcUtils.HOST_KEY).asText());
+            LOGGER.info("Port: {}", instanceConfig.get(JdbcUtils.PORT_KEY).asText());
+            LOGGER.info("Database: {}", config.get(JdbcUtils.DATABASE_KEY).asText());
+            LOGGER.info("TLS: {}", tls);
+            yield String.format(MongoUtils.MONGODB_SERVER_URL, credentials, 
+                instanceConfig.get(JdbcUtils.HOST_KEY).asText(),
                 instanceConfig.get(JdbcUtils.PORT_KEY).asText(),
-                config.get(JdbcUtils.DATABASE_KEY).asText(), tls));
-      }
-      case REPLICA -> {
-        connectionStrBuilder.append(
-            String.format(MongoUtils.MONGODB_REPLICA_URL,
+                config.get(JdbcUtils.DATABASE_KEY).asText(), 
+                tls);
+        }
+        case REPLICA -> {
+            final String MONGODB_REPLICA_URL = "mongodb://%s%s/%s?authSource=admin&directConnection=false&ssl=%s";
+            final var tls = !instanceConfig.has("tls") || instanceConfig.get("tls").asBoolean();
+            LOGGER.info("Base template: {}", MONGODB_REPLICA_URL);
+            LOGGER.info("Credentials: {}", credentials);
+            LOGGER.info("Host: {}", instanceConfig.get(MongoUtils.SERVER_ADDRESSES).asText());
+            LOGGER.info("Database: {}", config.get(JdbcUtils.DATABASE_KEY).asText());
+            if (instanceConfig.has(MongoUtils.REPLICA_SET)) {
+              LOGGER.info("Replica set: {}", instanceConfig.get(MongoUtils.REPLICA_SET).asText());
+            } else {
+              LOGGER.info("Replica set not set");
+            }
+            LOGGER.info("TLS: {}", tls);
+            
+            var connectionString = String.format(MONGODB_REPLICA_URL,
                 credentials,
                 instanceConfig.get(MongoUtils.SERVER_ADDRESSES).asText(),
-                config.get(JdbcUtils.DATABASE_KEY).asText()));
-        if (instanceConfig.has(MongoUtils.REPLICA_SET)) {
-          connectionStrBuilder.append(String.format("&replicaSet=%s", instanceConfig.get(MongoUtils.REPLICA_SET).asText()));
-        }
-      }
-      case ATLAS -> {
-        connectionStrBuilder.append(
-            String.format(MongoUtils.MONGODB_CLUSTER_URL, credentials,
-                instanceConfig.get(MongoUtils.CLUSTER_URL).asText(),
-                config.get(JdbcUtils.DATABASE_KEY).asText()));
-      }
-      default -> throw new IllegalArgumentException("Unsupported instance type: " + instance);
-    }
-    return connectionStrBuilder.toString();
-  }
+                config.get(JdbcUtils.DATABASE_KEY).asText(),
+                tls);
+            
+            if (instanceConfig.has(MongoUtils.REPLICA_SET)) {
+                connectionString += String.format("&replicaSet=%s", instanceConfig.get(MongoUtils.REPLICA_SET).asText());
+            }
 
+            LOGGER.info("Connection string: {}", connectionString);
+            
+            yield connectionString;
+        }
+        case ATLAS -> String.format(MongoUtils.MONGODB_CLUSTER_URL, credentials,
+            instanceConfig.get(MongoUtils.CLUSTER_URL).asText(),
+            config.get(JdbcUtils.DATABASE_KEY).asText());
+        
+        default -> throw new IllegalArgumentException("Unsupported instance type: " + instance);
+    };
+  }
 }

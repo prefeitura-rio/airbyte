@@ -71,6 +71,13 @@
                 "type": "string",
                 "description": "A replica set name.",
                 "order": 1
+              },
+              "tls": {
+                "title": "TLS Connection",
+                "type": "boolean",
+                "description": "Indicates whether TLS encryption protocol will be used to connect to MongoDB. It is recommended to use TLS connection if possible. For more information see <a href=\"https://docs.airbyte.com/integrations/sources/mongodb-v2\">documentation</a>.",
+                "default": true,
+                "order": 2
               }
             }
           },
