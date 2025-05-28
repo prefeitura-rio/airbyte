@@ -3,22 +3,57 @@
 #
 
 
+import io
 import logging
 import time
-from typing import Any, Iterable, Mapping
+from dataclasses import dataclass
+from logging import getLogger
+from typing import Any, Iterable, Mapping, cast
 
+import orjson
+from serpyco_rs import Serializer
 from typesense import Client
+from typing_extensions import override
 
 from airbyte_cdk.destinations import Destination
+from airbyte_cdk.exception_handler import init_uncaught_exception_handler
 from airbyte_cdk.models import (
     AirbyteConnectionStatus,
     AirbyteMessage,
+    AirbyteStateMessage,
     ConfiguredAirbyteCatalog,
     DestinationSyncMode,
     Status,
     Type,
 )
+from airbyte_cdk.models.airbyte_protocol_serializers import custom_type_resolver
 from destination_typesense.writer import TypesenseWriter
+
+
+logger = getLogger("airbyte")
+
+@dataclass
+class PatchedAirbyteStateMessage(AirbyteStateMessage):
+    """Declare the `id` attribute that platform sends."""
+
+    id: int | None = None
+    """Injected by the platform."""
+
+
+@dataclass
+class PatchedAirbyteMessage(AirbyteMessage):
+    """Keep all defaults but override the type used in `state`."""
+
+    state: PatchedAirbyteStateMessage | None = None
+    """Override class for the state message only."""
+
+
+PatchedAirbyteMessageSerializer = Serializer(
+    PatchedAirbyteMessage,
+    omit_none=True,
+    custom_type_resolver=custom_type_resolver,
+)
+"""Redeclared SerDes class using the patched dataclass."""
 
 
 def get_client(config: Mapping[str, Any]) -> Client:
@@ -99,3 +134,34 @@ class DestinationTypesense(Destination):
                 logger.warning("Failed to delete _airbyte collection")
 
         return status
+
+    @override
+    def run(self, args: list[str]) -> None:
+        """Overridden from CDK base class in order to use the patched SerDes class."""
+        init_uncaught_exception_handler(logger)
+        parsed_args = self.parse_args(args)
+        output_messages = self.run_cmd(parsed_args)
+        for message in output_messages:
+            print(
+                orjson.dumps(
+                    PatchedAirbyteMessageSerializer.dump(
+                        cast(PatchedAirbyteMessage, message),
+                    )
+                ).decode()
+            )
+
+    @override
+    def _parse_input_stream(self, input_stream: io.TextIOWrapper) -> Iterable[AirbyteMessage]:
+        """Reads from stdin, converting to Airbyte messages.
+
+        Includes overrides that should be in the CDK but we need to test it in the wild first.
+
+        Rationale:
+            The platform injects `id` but our serializer classes don't support
+            `additionalProperties`.
+        """
+        for line in input_stream:
+            try:
+                yield PatchedAirbyteMessageSerializer.load(orjson.loads(line))
+            except orjson.JSONDecodeError:
+                logger.info(f"ignoring input which can't be deserialized as Airbyte Message: {line}")
