@@ -90,7 +90,7 @@ public class MongodbRecordConsumer extends FailureTrackingAirbyteMessageConsumer
         LOGGER.info("Migration finished with no explicit errors. Copying data from tmp tables to permanent");
         writeConfigs.values().forEach(mongodbWriteConfig -> Exceptions.toRuntime(() -> {
           try {
-            copyTable(mongoDatabase, mongodbWriteConfig.getCollectionName(), mongodbWriteConfig.getTmpCollectionName());
+            copyTable(mongoDatabase, mongodbWriteConfig.getCollectionName(), mongodbWriteConfig.getTmpCollectionName(), mongodbWriteConfig.getBatchSize());
           } catch (final RuntimeException e) {
             LOGGER.error("Failed to process a message for Streams numbers: {}, SyncMode: {}, CollectionName: {}, TmpCollectionName: {}",
                 catalog.getStreams().size(), mongodbWriteConfig.getSyncMode(), mongodbWriteConfig.getCollectionName(),
@@ -143,18 +143,28 @@ public class MongodbRecordConsumer extends FailureTrackingAirbyteMessageConsumer
     }
   }
 
-  private static void copyTable(final MongoDatabase mongoDatabase, final String collectionName, final String tmpCollectionName) {
-
+  private static void copyTable(final MongoDatabase mongoDatabase, final String collectionName, final String tmpCollectionName, final int batchSize) {
     final var tempCollection = mongoDatabase.getOrCreateNewCollection(tmpCollectionName);
     final var collection = mongoDatabase.getOrCreateNewCollection(collectionName);
-    final List<Document> documents = new ArrayList<>();
+
+    // Create a temporary list to hold the current batch of documents
+    final List<Document> batch = new ArrayList<>();
+
     try (final MongoCursor<Document> cursor = tempCollection.find().projection(excludeId()).iterator()) {
-      while (cursor.hasNext()) {
-        documents.add(cursor.next());
-      }
-    }
-    if (!documents.isEmpty()) {
-      collection.insertMany(documents);
+        while (cursor.hasNext()) {
+            batch.add(cursor.next());
+
+            // When the batch size is reached, insert the batch and clear the list
+            if (batch.size() == batchSize) {
+                collection.insertMany(new ArrayList<>(batch));
+                batch.clear();
+            }
+        }
+
+        // Insert remaining documents that didn't fill a complete batch
+        if (!batch.isEmpty()) {
+            collection.insertMany(batch);
+        }
     }
   }
 

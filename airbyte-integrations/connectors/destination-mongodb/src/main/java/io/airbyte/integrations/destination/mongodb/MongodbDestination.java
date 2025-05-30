@@ -123,8 +123,11 @@ public class MongodbDestination extends BaseConnector implements Destination {
         }
       }
 
+      // Get batch size from config, default to 1000 if not specified
+      final int batchSize = config.get("instance_type").get("batch_size").asInt(1000);
+
       writeConfigs.put(AirbyteStreamNameNamespacePair.fromAirbyteStream(stream),
-          new MongodbWriteConfig(collectionName, tmpCollectionName, configStream.getDestinationSyncMode(), collection, documentsHash));
+          new MongodbWriteConfig(collectionName, tmpCollectionName, configStream.getDestinationSyncMode(), collection, documentsHash, batchSize));
     }
     return new MongodbRecordConsumer(writeConfigs, database, catalog, outputRecordCollector);
   }

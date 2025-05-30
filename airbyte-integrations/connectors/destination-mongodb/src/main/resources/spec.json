@@ -47,6 +47,13 @@
                 "description": "Indicates whether TLS encryption protocol will be used to connect to MongoDB. It is recommended to use TLS connection if possible. For more information see <a href=\"https://docs.airbyte.com/integrations/sources/mongodb-v2\">documentation</a>.",
                 "default": false,
                 "order": 2
+              },
+              "batch_size": {
+                "title": "Batch Size",
+                "type": "integer",
+                "description": "The number of documents to write at a time when copying data from temporary collections to the destination collection.",
+                "default": 1000,
+                "order": 3
               }
             }
           },

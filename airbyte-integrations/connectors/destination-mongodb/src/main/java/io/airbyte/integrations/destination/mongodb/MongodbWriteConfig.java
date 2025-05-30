@@ -18,17 +18,20 @@ class MongodbWriteConfig {
   private final DestinationSyncMode syncMode;
   private final MongoCollection<Document> collection;
   private final Set<String> documentsHash = new HashSet<>();
+  private final int batchSize;
 
   MongodbWriteConfig(final String collectionName,
                      final String tmpCollectionName,
                      final DestinationSyncMode syncMode,
                      final MongoCollection<Document> collection,
-                     final Collection<String> documentsHash) {
+                     final Collection<String> documentsHash,
+                     final int batchSize) {
     this.collectionName = collectionName;
     this.tmpCollectionName = tmpCollectionName;
     this.syncMode = syncMode;
     this.collection = collection;
     this.documentsHash.addAll(documentsHash);
+    this.batchSize = batchSize;
   }
 
   public String getCollectionName() {
@@ -49,6 +52,10 @@ class MongodbWriteConfig {
 
   public Set<String> getDocumentsHash() {
     return documentsHash;
+  }
+
+  public int getBatchSize() {
+    return batchSize;
   }
 
 }
