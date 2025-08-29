@@ -1,0 +1,147 @@
+# Airbyte MongoDB Source Connector Development Tasks
+
+# Show available commands
+default:
+    @just --list
+
+# Install dependencies
+install:
+    uv sync
+
+# Run linting with ruff
+lint:
+    uv run ruff check .
+
+# Fix linting issues automatically
+lint-fix:
+    uv run ruff check --fix .
+
+# Format code with ruff
+format:
+    uv run ruff format .
+
+# Type check with mypy
+check:
+    uv run mypy source_mongodb/
+
+# Run all checks (lint + format + type check)
+validate: lint format check
+
+# Clean build artifacts and cache
+clean:
+    rm -rf .venv/
+    rm -rf .mypy_cache/
+    rm -rf .ruff_cache/
+    find . -type d -name "__pycache__" -exec rm -rf {} +
+    find . -name "*.pyc" -delete
+
+# Connector commands
+spec:
+    uv run source-mongodb spec
+
+# Check connection (requires secrets/config.json)
+check-connection:
+    @if [ ! -f secrets/config.json ]; then echo "Error: secrets/config.json not found"; exit 1; fi
+    uv run source-mongodb check --config secrets/config.json
+
+# Discover schema (requires secrets/config.json)
+discover:
+    @if [ ! -f secrets/config.json ]; then echo "Error: secrets/config.json not found"; exit 1; fi
+    uv run source-mongodb discover --config secrets/config.json
+
+# Read data (requires secrets/config.json and catalog)
+read catalog_path:
+    @if [ ! -f secrets/config.json ]; then echo "Error: secrets/config.json not found"; exit 1; fi
+    @if [ ! -f "{{catalog_path}}" ]; then echo "Error: catalog file {{catalog_path}} not found"; exit 1; fi
+    uv run source-mongodb read --config secrets/config.json --catalog "{{catalog_path}}"
+
+# Build Docker image
+build:
+    airbyte-ci connectors --name=source-mongodb build
+
+# Build Docker image with custom tag
+docker-build tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Load .env file if it exists
+    if [ -f .env ]; then
+        export $(grep -v '^#' .env | xargs)
+    fi
+    
+    if [ -z "${DOCKER_IMAGE_NAME:-}" ]; then
+        echo "Error: DOCKER_IMAGE_NAME environment variable is not set"
+        echo "Please create a .env file with your configuration:"
+        echo "  cp .env.example .env"
+        echo "  # Edit .env to set DOCKER_IMAGE_NAME=your-username/airbyte-source-mongodb-python"
+        exit 1
+    fi
+    echo "Building Docker image: $DOCKER_IMAGE_NAME:{{tag}}"
+    docker build --platform ${DOCKER_PLATFORM:-linux/amd64} -t "$DOCKER_IMAGE_NAME:{{tag}}" .
+
+# Push Docker image with custom tag
+docker-push tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Load .env file if it exists
+    if [ -f .env ]; then
+        export $(grep -v '^#' .env | xargs)
+    fi
+    
+    if [ -z "${DOCKER_IMAGE_NAME:-}" ]; then
+        echo "Error: DOCKER_IMAGE_NAME environment variable is not set"
+        echo "Please create a .env file with your configuration:"
+        echo "  cp .env.example .env"
+        echo "  # Edit .env to set DOCKER_IMAGE_NAME=your-username/image-name"
+        exit 1
+    fi
+    echo "Pushing Docker image: $DOCKER_IMAGE_NAME:{{tag}}"
+    docker push "$DOCKER_IMAGE_NAME:{{tag}}"
+
+# Build and push Docker image with custom tag
+docker-release tag:
+    @echo "🐳 Building and pushing Docker image with tag: {{tag}}"
+    just docker-build {{tag}}
+    just docker-push {{tag}}
+    @echo "✅ Successfully released $DOCKER_IMAGE_NAME:{{tag}}"
+
+# Show current Docker configuration
+docker-info:
+    #!/usr/bin/env bash
+    # Load .env file if it exists
+    if [ -f .env ]; then
+        export $(grep -v '^#' .env | xargs)
+    fi
+    
+    echo "Docker Configuration:"
+    echo "  Image name: ${DOCKER_IMAGE_NAME:-'❌ Not set'}"
+    echo "  Platform: ${DOCKER_PLATFORM:-'linux/amd64 (default)'}"
+    echo "  .env file: $(if [ -f .env ]; then echo '✅ Found'; else echo '❌ Missing'; fi)"
+    echo ""
+    if [ -z "${DOCKER_IMAGE_NAME:-}" ]; then
+        echo "⚠️  DOCKER_IMAGE_NAME is not set!"
+        echo "   Create .env file: cp .env.example .env"
+        echo "   Edit .env to set: DOCKER_IMAGE_NAME=your-username/image-name"
+        echo "   Then run: direnv reload"
+    else
+        echo "✅ Docker environment is configured"
+    fi
+
+# Run full Airbyte test suite
+test:
+    airbyte-ci connectors --name=source-mongodb test
+
+# Create example config file
+create-config:
+    @mkdir -p secrets
+    @echo '{"connection_string": "mongodb://username:password@localhost:27017/database?authSource=admin", "database": "your_database", "page_size": 1000, "cursor_field": "_id"}' > secrets/config.json
+    @echo "Created example config at secrets/config.json - please edit with your MongoDB details"
+
+# Show project info
+info:
+    @echo "📊 Airbyte MongoDB Source Connector"
+    @echo "Language: Python $(python --version | cut -d' ' -f2)"
+    @echo "Package manager: uv $(uv --version | cut -d' ' -f2)"
+    @echo "Virtual env: $(if [ -d .venv ]; then echo 'Active'; else echo 'Not created'; fi)"
+    @echo "Dependencies: $(if [ -f uv.lock ]; then echo 'Locked'; else echo 'Not locked'; fi)"

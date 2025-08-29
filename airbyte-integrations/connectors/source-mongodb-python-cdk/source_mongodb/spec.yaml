@@ -1,0 +1,57 @@
+documentationUrl: https://docs.airbyte.com/integrations/sources/mongodb
+connectionSpecification:
+  $schema: http://json-schema.org/draft-07/schema#
+  title: MongoDB Spec
+  type: object
+  required:
+    - connection_string
+  properties:
+    connection_string:
+      type: string
+      description: The MongoDB connection string URI. This should include all connection parameters such as host, port, authentication, database, and options.
+      airbyte_secret: true
+      examples:
+        - mongodb://localhost:27017
+        - mongodb://username:password@localhost:27017/mydb?authSource=admin
+        - mongodb+srv://username:password@cluster.mongodb.net/mydb?retryWrites=true&w=majority
+        - mongodb://localhost:27017,localhost:27018/mydb?replicaSet=myReplicaSet
+    database:
+      type: string
+      description: The name of the database to connect to. If not specified, all accessible databases will be synced. This overrides any database specified in the connection string.
+      examples:
+        - mydb
+        - production
+    page_size:
+      type: integer
+      description: The number of documents to fetch in a single request.
+      minimum: 1
+      maximum: 10000
+      default: 1000
+      examples:
+        - 1000
+        - 5000
+    cursor_field:
+      type: string
+      description: The field to use as cursor for incremental syncs. Defaults to '_id'.
+      default: _id
+      examples:
+        - _id
+        - updated_at
+        - timestamp
+    fields:
+      type: array
+      description: List of fields to extract from documents. If not specified, all fields will be extracted.
+      items:
+        type: string
+      examples:
+        - ["_id", "name", "email", "created_at"]
+        - ["_id", "title", "content", "author"]
+    sample_size:
+      type: integer
+      description: Number of documents to sample for schema inference.
+      minimum: 1
+      maximum: 1000
+      default: 100
+      examples:
+        - 100
+        - 500

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "source-mongodb"
+version = "0.1.0"
+description = "Source implementation for MongoDB."
+authors = [
+    {name = "Airbyte", email = "contact@airbyte.io"},
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.9,<3.12"
+dependencies = [
+    "airbyte-cdk>=0.80.0",
+    "pymongo>=4.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+source-mongodb = "source_mongodb.run:run"
+
+[project.urls]
+Documentation = "https://docs.airbyte.com/integrations/sources/mongodb"
+Homepage = "https://airbyte.com"
+Repository = "https://github.com/airbytehq/airbyte"
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
