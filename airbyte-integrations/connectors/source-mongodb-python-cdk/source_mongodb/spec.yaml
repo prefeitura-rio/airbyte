@@ -40,18 +40,9 @@ connectionSpecification:
         - timestamp
     fields:
       type: array
-      description: List of fields to extract from documents. If not specified, all fields will be extracted.
+      description: List of fields to extract from documents and include in the 'data' field. If not specified, all fields (except _id) will be included.
       items:
         type: string
       examples:
-        - ["_id", "name", "email", "created_at"]
-        - ["_id", "title", "content", "author"]
-    sample_size:
-      type: integer
-      description: Number of documents to sample for schema inference.
-      minimum: 1
-      maximum: 1000
-      default: 100
-      examples:
-        - 100
-        - 500
+        - ["name", "email", "created_at"]
+        - ["title", "content", "author"]

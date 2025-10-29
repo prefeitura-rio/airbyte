@@ -51,7 +51,7 @@ class MongoStream(Stream, ABC):
         Returns:
             str: The primary key field name.
         """
-        return "_id"
+        return "id"
 
 
     def get_client(self) -> MongoClient:
@@ -79,32 +79,57 @@ class MongoStream(Stream, ABC):
     def serialize_document(self, document: dict) -> dict:
         """
         Serialize MongoDB document for Airbyte.
+        Restructures document as {"id": "...", "data": {...}}
 
         Args:
             document (dict): The MongoDB document.
 
         Returns:
-            dict: The serialized document.
+            dict: The serialized document with id and data fields.
         """
-        # Apply field filter if specified
+        # Extract and convert _id
+        doc_id = document.get("_id")
+        if doc_id is None:
+            # Skip documents without _id (should be very rare, but prevents null values)
+            return None
+
+        if isinstance(doc_id, ObjectId):
+            doc_id = str(doc_id)
+
+        # Create a copy without _id for the data field
+        data = {k: v for k, v in document.items() if k != "_id"}
+
+        # Apply field filter if specified (to data only)
         if self.fields_filter:
-            document = {k: v for k, v in document.items() if k in self.fields_filter}
-        
-        # Convert ObjectId to string
-        if isinstance(document.get("_id"), ObjectId):
-            document["_id"] = str(document["_id"])
-        
-        # Handle other ObjectId fields
-        for key, value in document.items():
-            if isinstance(value, ObjectId):
-                document[key] = str(value)
-            elif isinstance(value, dict):
-                document[key] = self.serialize_document(value)
-            elif isinstance(value, list):
-                document[key] = [self.serialize_document(item) if isinstance(item, dict) else 
-                               str(item) if isinstance(item, ObjectId) else item for item in value]
-        
-        return document
+            # Filter fields but always keep _id for tracking
+            data = {k: v for k, v in data.items() if k in self.fields_filter}
+
+        # Recursively serialize ObjectIds in the data
+        data = self._serialize_values(data)
+
+        return {
+            "id": doc_id,
+            "data": data
+        }
+
+    def _serialize_values(self, obj):
+        """
+        Recursively serialize ObjectIds and other values.
+
+        Args:
+            obj: The object to serialize.
+
+        Returns:
+            The serialized object.
+        """
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        elif isinstance(obj, dict):
+            return {k: self._serialize_values(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._serialize_values(item) for item in obj]
+        else:
+            return obj
 
     def read_records(self, sync_mode, cursor_field=None, stream_slice=None, stream_state=None) -> Iterable[Mapping[str, Any]]:
         """
@@ -120,8 +145,11 @@ class MongoStream(Stream, ABC):
             Iterable[Mapping[str, Any]]: An iterable of records.
         """
         collection = self.get_collection()
-        
-        # Build query based on sync mode
+
+        # Determine sort field
+        sort_field = cursor_field if cursor_field else "_id"
+
+        # Build initial query based on sync mode
         query = {}
         if sync_mode == "incremental" and stream_state and cursor_field:
             cursor_value = stream_state.get(cursor_field)
@@ -130,27 +158,48 @@ class MongoStream(Stream, ABC):
                     query[cursor_field] = {"$gt": ObjectId(cursor_value)}
                 else:
                     query[cursor_field] = {"$gt": cursor_value}
-        
-        # Sort by cursor field for consistent ordering
-        sort_field = cursor_field if cursor_field else "_id"
-        
-        # Paginate through results
-        skip = 0
+
+        # Use cursor-based pagination instead of skip() to avoid duplicates/missing data
+        last_seen_id = None
+
         while True:
-            cursor = collection.find(query).sort(sort_field, 1).skip(skip).limit(self.page_size)
+            # Build query with cursor continuation
+            page_query = query.copy()
+            if last_seen_id is not None:
+                # Add condition to get documents after the last seen ID
+                if sort_field == "_id":
+                    if "_id" in page_query:
+                        # Combine with existing _id filter
+                        page_query["_id"]["$gt"] = last_seen_id
+                    else:
+                        page_query["_id"] = {"$gt": last_seen_id}
+                else:
+                    # For non-_id cursor fields, we need compound filtering
+                    if sort_field in page_query:
+                        page_query[sort_field]["$gt"] = last_seen_id
+                    else:
+                        page_query[sort_field] = {"$gt": last_seen_id}
+
+            # Fetch next page
+            cursor = collection.find(page_query).sort(sort_field, 1).limit(self.page_size)
             documents = list(cursor)
-            
+
             if not documents:
                 break
-                
+
             for document in documents:
-                yield self.serialize_document(document)
-            
+                # Update last seen cursor value
+                last_seen_id = document.get(sort_field)
+                if sort_field == "_id" and isinstance(last_seen_id, ObjectId):
+                    last_seen_id = ObjectId(last_seen_id)
+
+                serialized = self.serialize_document(document)
+                if serialized is not None:  # Skip documents without _id
+                    yield serialized
+
             # If we got fewer documents than page_size, we're done
             if len(documents) < self.page_size:
                 break
-                
-            skip += self.page_size
 
     def __del__(self):
         """Clean up MongoDB client connection."""
@@ -221,13 +270,20 @@ class MongoCollectionIncremental(MongoStream):
 
         Args:
             current_stream_state (MutableMapping[str, Any]): The current state of the stream.
-            latest_record (Mapping[str, Any]): The latest record fetched.
+            latest_record (Mapping[str, Any]): The latest record fetched (in {id, data} format).
 
         Returns:
             Mapping[str, Any]: The updated stream state.
         """
+        # Extract cursor value from the record
+        # For _id cursor, the value is in the "id" field
+        # For other cursors, check in the "data" field
+        if self.cursor_field == "_id":
+            latest_cursor_value = latest_record.get("id")
+        else:
+            latest_cursor_value = latest_record.get("data", {}).get(self.cursor_field)
+
         current_cursor_value = current_stream_state.get(self.cursor_field)
-        latest_cursor_value = latest_record.get(self.cursor_field)
 
         if current_cursor_value is None:
             return {self.cursor_field: latest_cursor_value}

@@ -16,145 +16,6 @@ from .streams import MongoCollection, MongoCollectionIncremental
 
 
 class SourceMongodb(AbstractSource):
-    def infer_schema_from_sample(self, collection, base_schema: dict, sample_size: int = 100, fields_filter: list = None) -> dict:
-        """
-        Infer JSON schema from sample documents in a MongoDB collection.
-        Uses MongoDB aggregation for efficient field discovery.
-        
-        Args:
-            collection: MongoDB collection object
-            base_schema: Base schema template to extend
-            sample_size: Number of documents to sample for schema inference
-            fields_filter: List of fields to include (None = all fields)
-            
-        Returns:
-            dict: JSON schema with inferred properties
-        """
-        # Start with base schema
-        schema = base_schema.copy()
-        properties = schema.get("properties", {})
-        
-        # Use aggregation to efficiently discover fields
-        pipeline = [
-            {"$sample": {"size": sample_size}},
-            {"$project": {"document": "$$ROOT"}},
-            {"$replaceRoot": {"newRoot": "$document"}}
-        ]
-        
-        try:
-            sample_docs = list(collection.aggregate(pipeline))
-        except Exception:
-            # Fallback to simple find if aggregation fails
-            sample_docs = list(collection.find().limit(sample_size))
-        
-        if not sample_docs:
-            return schema
-        
-        # Analyze each document to infer schema
-        all_fields = set()
-        field_types = {}
-        
-        for doc in sample_docs:
-            # Get all field paths (including nested fields)
-            field_paths = self._extract_field_paths(doc)
-            
-            for field_path, value in field_paths.items():
-                # Apply field filter if specified
-                if fields_filter and field_path not in fields_filter:
-                    continue
-                    
-                all_fields.add(field_path)
-                
-                # Infer field type
-                if field_path not in field_types:
-                    field_types[field_path] = set()
-                
-                field_type = self._infer_field_type(value)
-                field_types[field_path].add(field_type)
-        
-        # Generate properties for each field
-        for field in all_fields:
-            types = list(field_types[field])
-            
-            if field == "_id":
-                # Always treat _id as string (converted from ObjectId)
-                properties[field] = {"type": "string", "description": "MongoDB document identifier"}
-            else:
-                # Handle multiple types
-                if len(types) == 1:
-                    properties[field] = {"type": types[0]}
-                else:
-                    # Multiple types possible - remove duplicates and null if other types exist
-                    types = list(set(types))
-                    if len(types) > 1 and "null" in types and len(types) > 1:
-                        # Make it nullable
-                        non_null_types = [t for t in types if t != "null"]
-                        if len(non_null_types) == 1:
-                            properties[field] = {"type": [non_null_types[0], "null"]}
-                        else:
-                            properties[field] = {"type": types}
-                    else:
-                        properties[field] = {"type": types}
-        
-        schema["properties"] = properties
-        return schema
-    
-    def _extract_field_paths(self, doc, prefix=""):
-        """
-        Extract all field paths from a document, including nested fields.
-        
-        Args:
-            doc: Document to analyze
-            prefix: Current field path prefix
-            
-        Returns:
-            dict: Field paths mapped to their values
-        """
-        field_paths = {}
-        
-        if not isinstance(doc, dict):
-            return {prefix: doc} if prefix else {}
-        
-        for key, value in doc.items():
-            field_path = f"{prefix}.{key}" if prefix else key
-            
-            if isinstance(value, dict) and value:
-                # Nested object - extract nested fields
-                nested_paths = self._extract_field_paths(value, field_path)
-                field_paths.update(nested_paths)
-            else:
-                # Leaf value
-                field_paths[field_path] = value
-                
-        return field_paths
-    
-    def _infer_field_type(self, value):
-        """
-        Infer JSON schema type from a value.
-        
-        Args:
-            value: Value to analyze
-            
-        Returns:
-            str: JSON schema type
-        """
-        if value is None:
-            return "null"
-        elif isinstance(value, str):
-            return "string"
-        elif isinstance(value, bool):  # Check bool before int (bool is subclass of int)
-            return "boolean"
-        elif isinstance(value, int):
-            return "integer"
-        elif isinstance(value, float):
-            return "number"
-        elif isinstance(value, list):
-            return "array"
-        elif isinstance(value, dict):
-            return "object"
-        else:
-            # Handle other types (dates, ObjectId, etc.)
-            return "string"
     def check_connection(self, logger, config) -> Tuple[bool, any]:
         """
         Connection check to validate that the user-provided config can be used to connect to MongoDB.
@@ -213,55 +74,46 @@ class SourceMongodb(AbstractSource):
                 databases = [db for db in client.list_database_names() 
                            if db not in ['admin', 'local', 'config']]
             
-            # Dynamically generate streams for each collection (like CouchDB connector)
+            # Dynamically generate streams for each collection
             schemas_path = Path(source_mongodb.__file__).parent / "schemas"
-            # Create schema files in the package schemas directory for CDK to find
             output_schemas_path = schemas_path
-            
-            # Load schema templates
+
+            # Load schema templates (fixed schema with id and data fields)
             with open(schemas_path / "collection.json", "r") as f:
-                base_schema_template = json.load(f)
-            
+                full_refresh_schema = json.load(f)
+
+            with open(schemas_path / "collection_incremental.json", "r") as f:
+                incremental_schema = json.load(f)
+
             streams = []
-            
+            fields_filter = config.get("fields")
+
             for database_name in databases:
                 db = client[database_name]
-                
+
                 # Get all collections in the database
                 collection_names = db.list_collection_names()
-                
+
                 for collection_name in collection_names:
                     # Skip system collections
                     if collection_name.startswith('system.'):
                         continue
-                    
+
                     stream_name = f"{database_name}_{collection_name}"
-                    
+
                     # Check if collection has suitable fields for incremental sync
                     collection = db[collection_name]
                     sample_doc = collection.find_one()
-                    
-                    # Get configuration options
-                    sample_size = config.get("sample_size", 100)
-                    fields_filter = config.get("fields")
-                    
-                    # Generate dynamic schema based on sample documents
-                    inferred_schema = self.infer_schema_from_sample(
-                        collection, 
-                        base_schema_template, 
-                        sample_size=sample_size,
-                        fields_filter=fields_filter
-                    )
-                    
+
                     # Create incremental stream if _id exists or specified cursor field
                     cursor_field = config.get("cursor_field", "_id")
                     if sample_doc and cursor_field in sample_doc:
-                        # Generate schema file for incremental stream
+                        # Use incremental schema
                         schema_file = output_schemas_path / f"{stream_name}.json"
                         schema_file.parent.mkdir(parents=True, exist_ok=True)
                         with open(schema_file, "w") as f:
-                            json.dump(inferred_schema, f, indent=2)
-                        
+                            json.dump(incremental_schema, f, indent=2)
+
                         # Create dynamic class for incremental stream
                         stream_class = type(
                             f"{stream_name.title().replace('_', '')}Incremental",
@@ -269,10 +121,10 @@ class SourceMongodb(AbstractSource):
                             {
                                 "name": stream_name,
                                 "cursor_field": cursor_field,
-                                "__module__": "source_mongodb.streams"  # Ensure correct module for schema loading
+                                "__module__": "source_mongodb.streams"
                             }
                         )
-                        
+
                         streams.append(
                             stream_class(
                                 database_name=database_name,
@@ -284,22 +136,22 @@ class SourceMongodb(AbstractSource):
                             )
                         )
                     else:
-                        # Generate schema file for full refresh stream
+                        # Use full refresh schema
                         schema_file = output_schemas_path / f"{stream_name}.json"
                         schema_file.parent.mkdir(parents=True, exist_ok=True)
                         with open(schema_file, "w") as f:
-                            json.dump(inferred_schema, f, indent=2)
-                        
+                            json.dump(full_refresh_schema, f, indent=2)
+
                         # Create dynamic class for full refresh stream
                         stream_class = type(
                             f"{stream_name.title().replace('_', '')}",
                             (MongoCollection,),
                             {
                                 "name": stream_name,
-                                "__module__": "source_mongodb.streams"  # Ensure correct module for schema loading
+                                "__module__": "source_mongodb.streams"
                             }
                         )
-                        
+
                         streams.append(
                             stream_class(
                                 database_name=database_name,
