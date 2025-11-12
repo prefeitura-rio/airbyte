@@ -43,11 +43,17 @@ class SourceTypesense(AbstractSource):
 
             # Test the connection by checking health
             health = client.operations.is_healthy()
-            if health:
-                logger.info("Successfully connected to Typesense server.")
-                return True, None
-            else:
+            if not health:
                 return False, "Typesense server is not healthy."
+
+            # Also test API key by attempting to retrieve collections
+            # This ensures the API key is valid, not just that the server is up
+            try:
+                client.collections.retrieve()
+                logger.info("Successfully connected to Typesense server and verified API key.")
+                return True, None
+            except TypesenseClientError as e:
+                return False, f"Failed to authenticate with Typesense. Please verify your API key is correct: {str(e)}"
 
         except TypesenseClientError as e:
             return False, f"Typesense client error: {str(e)}"
