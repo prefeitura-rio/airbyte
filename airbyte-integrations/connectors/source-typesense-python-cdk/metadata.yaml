@@ -1,0 +1,32 @@
+data:
+  allowedHosts:
+    hosts:
+      - "*" # Typesense can be hosted anywhere
+  registries:
+    oss:
+      enabled: true
+    cloud:
+      enabled: false
+  remoteRegistries:
+    pypi:
+      enabled: true
+      packageName: airbyte-source-typesense
+  connectorBuildOptions:
+    baseImage: docker.io/airbyte/python-connector-base:1.2.0@sha256:c22a9d97464b69d6ef01898edf3f8612dc11614f05a84984451dde195f337db9
+  connectorSubtype: database
+  connectorType: source
+  definitionId: f9e1c1a2-8b3d-4e5f-9a7b-1c2d3e4f5a6b
+  dockerImageTag: 0.1.0
+  dockerRepository: airbyte/source-typesense
+  githubIssueLabel: source-typesense
+  icon: typesense.svg
+  license: MIT
+  name: Typesense
+  releaseDate: TODO
+  supportLevel: community
+  releaseStage: alpha
+  documentationUrl: https://docs.airbyte.com/integrations/sources/typesense
+  tags:
+    - language:python
+    - cdk:python
+metadataSpecVersion: "1.0"

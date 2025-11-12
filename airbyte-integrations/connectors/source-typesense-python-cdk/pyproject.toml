@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "source-typesense"
+version = "0.1.0"
+description = "Source implementation for Typesense."
+authors = [
+    {name = "Airbyte", email = "contact@airbyte.io"},
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.9,<3.12"
+dependencies = [
+    "airbyte-cdk>=0.80.0",
+    "typesense>=0.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+source-typesense = "source_typesense.run:run"
+
+[project.urls]
+Documentation = "https://docs.airbyte.com/integrations/sources/typesense"
+Homepage = "https://airbyte.com"
+Repository = "https://github.com/airbytehq/airbyte"
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]

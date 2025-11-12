@@ -1,0 +1,28 @@
+documentationUrl: https://docs.airbyte.com/integrations/sources/typesense
+connectionSpecification:
+  $schema: http://json-schema.org/draft-07/schema#
+  title: Typesense Spec
+  type: object
+  required:
+    - host
+    - api_key
+  properties:
+    host:
+      type: string
+      description: The Typesense host URL (including protocol and port if needed).
+      examples:
+        - http://localhost:8108
+        - https://typesense.example.com
+    api_key:
+      type: string
+      description: The Typesense API key for authentication.
+      airbyte_secret: true
+    page_size:
+      type: integer
+      description: The number of documents to fetch per page during export.
+      minimum: 1
+      maximum: 250
+      default: 250
+      examples:
+        - 100
+        - 250
