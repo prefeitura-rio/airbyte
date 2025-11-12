@@ -68,12 +68,12 @@ class TypesenseStream(Stream, ABC):
 
             protocol = match.group(1)
             host = match.group(2)
-            port = match.group(3) or ('443' if protocol == 'https' else '8108')
+            port = int(match.group(3) or ('443' if protocol == 'https' else '8108'))
 
             self._client = Client({
                 'nodes': [{
                     'host': host,
-                    'port': port,
+                    'port': str(port),
                     'protocol': protocol
                 }],
                 'api_key': self.api_key,
