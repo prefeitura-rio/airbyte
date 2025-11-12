@@ -6,10 +6,10 @@ This is the repository for the Typesense source connector, written in Python usi
 
 The connector supports Typesense connection via the following parameters:
 
-- **host**: Complete Typesense URL including protocol and port (required)
-  - Examples:
-    - `http://localhost:8108`
-    - `https://typesense.example.com`
+- **protocol**: Protocol to use (http or https, default: http)
+- **host**: Typesense hostname or IP address (required)
+  - Examples: `localhost`, `typesense.example.com`, `192.168.1.100`
+- **port**: Typesense port (default: 8108)
 - **api_key**: Typesense API key for authentication (required)
 - **page_size**: Documents per batch (default: 250)
 

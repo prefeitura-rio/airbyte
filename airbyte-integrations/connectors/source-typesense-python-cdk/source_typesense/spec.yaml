@@ -7,12 +7,32 @@ connectionSpecification:
     - host
     - api_key
   properties:
+    protocol:
+      type: string
+      description: The protocol to use for connecting to Typesense.
+      enum:
+        - http
+        - https
+      default: http
+      examples:
+        - http
+        - https
     host:
       type: string
-      description: The Typesense host URL (including protocol and port if needed).
+      description: The Typesense host (hostname or IP address, without protocol or port).
       examples:
-        - http://localhost:8108
-        - https://typesense.example.com
+        - localhost
+        - typesense.example.com
+        - 192.168.1.100
+    port:
+      type: integer
+      description: The Typesense port.
+      minimum: 1
+      maximum: 65535
+      default: 8108
+      examples:
+        - 8108
+        - 443
     api_key:
       type: string
       description: The Typesense API key for authentication.

@@ -135,7 +135,7 @@ test:
 # Create example config file
 create-config:
     @mkdir -p secrets
-    @echo '{"host": "http://localhost:8108", "api_key": "your-api-key", "page_size": 250}' > secrets/config.json
+    @echo '{"protocol": "http", "host": "localhost", "port": 8108, "api_key": "your-api-key", "page_size": 250}' > secrets/config.json
     @echo "Created example config at secrets/config.json - please edit with your Typesense details"
 
 # Show project info

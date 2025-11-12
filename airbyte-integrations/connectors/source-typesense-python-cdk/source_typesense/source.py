@@ -25,24 +25,15 @@ class SourceTypesense(AbstractSource):
         :return Tuple[bool, any]: (True, None) if the input config can be used to connect successfully, (False, error) otherwise.
         """
         try:
+            protocol = config.get("protocol", "http")
             host = config["host"]
+            port = config.get("port", 8108)
             api_key = config["api_key"]
-
-            # Parse host to extract protocol, hostname, and port
-            import re
-            match = re.match(r'(https?)://([^:]+):?(\d+)?', host)
-
-            if not match:
-                return False, f"Invalid host format: {host}. Expected format: http://hostname:port"
-
-            protocol = match.group(1)
-            hostname = match.group(2)
-            port = int(match.group(3) or ('443' if protocol == 'https' else '8108'))
 
             # Create Typesense client
             client = Client({
                 'nodes': [{
-                    'host': hostname,
+                    'host': host,
                     'port': str(port),
                     'protocol': protocol
                 }],
@@ -70,25 +61,16 @@ class SourceTypesense(AbstractSource):
         :param config: A Mapping of the user input configuration as defined in the connector spec.
         """
         try:
+            protocol = config.get("protocol", "http")
             host = config["host"]
+            port = config.get("port", 8108)
             api_key = config["api_key"]
             page_size = config.get("page_size", 250)
-
-            # Parse host
-            import re
-            match = re.match(r'(https?)://([^:]+):?(\d+)?', host)
-
-            if not match:
-                raise ValueError(f"Invalid host format: {host}")
-
-            protocol = match.group(1)
-            hostname = match.group(2)
-            port = int(match.group(3) or ('443' if protocol == 'https' else '8108'))
 
             # Create Typesense client
             client = Client({
                 'nodes': [{
-                    'host': hostname,
+                    'host': host,
                     'port': str(port),
                     'protocol': protocol
                 }],
@@ -131,7 +113,9 @@ class SourceTypesense(AbstractSource):
                 streams.append(
                     stream_class(
                         collection_name=collection_name,
+                        protocol=protocol,
                         host=host,
+                        port=port,
                         api_key=api_key,
                         page_size=page_size
                     )

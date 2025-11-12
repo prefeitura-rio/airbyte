@@ -13,19 +13,23 @@ class TypesenseStream(Stream, ABC):
     A base class for Typesense streams. This class provides common functionality for interacting with Typesense collections.
     """
 
-    def __init__(self, collection_name: str, host: str, api_key: str, page_size: int, **kwargs):
+    def __init__(self, collection_name: str, protocol: str, host: str, port: int, api_key: str, page_size: int, **kwargs):
         """
         Initialize the TypesenseStream.
 
         Args:
             collection_name (str): The name of the Typesense collection.
-            host (str): The Typesense host URL.
+            protocol (str): The protocol (http or https).
+            host (str): The Typesense hostname.
+            port (int): The Typesense port.
             api_key (str): The Typesense API key.
             page_size (int): The number of records to fetch per page.
         """
         super().__init__(**kwargs)
         self.collection_name = collection_name
+        self.protocol = protocol
         self.host = host
+        self.port = port
         self.api_key = api_key
         self.page_size = page_size
         self._client = None
@@ -58,23 +62,11 @@ class TypesenseStream(Stream, ABC):
             Client: The Typesense client instance.
         """
         if self._client is None:
-            # Parse host to extract protocol, hostname, and port
-            # Typesense client expects them separately
-            import re
-            match = re.match(r'(https?)://([^:]+):?(\d+)?', self.host)
-
-            if not match:
-                raise ValueError(f"Invalid host format: {self.host}. Expected format: http://hostname:port")
-
-            protocol = match.group(1)
-            host = match.group(2)
-            port = int(match.group(3) or ('443' if protocol == 'https' else '8108'))
-
             self._client = Client({
                 'nodes': [{
-                    'host': host,
-                    'port': str(port),
-                    'protocol': protocol
+                    'host': self.host,
+                    'port': str(self.port),
+                    'protocol': self.protocol
                 }],
                 'api_key': self.api_key,
                 'connection_timeout_seconds': 30
