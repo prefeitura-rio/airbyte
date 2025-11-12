@@ -68,7 +68,7 @@ class SourceTypesense(AbstractSource):
             page_size = config.get("page_size", 250)
 
             # Create Typesense client
-            client = Client({
+            config_dict = {
                 'nodes': [{
                     'host': host,
                     'port': str(port),
@@ -76,10 +76,16 @@ class SourceTypesense(AbstractSource):
                 }],
                 'api_key': api_key,
                 'connection_timeout_seconds': 30
-            })
+            }
+
+            client = Client(config_dict)
 
             # Get list of collections
-            collections_response = client.collections.retrieve()
+            try:
+                collections_response = client.collections.retrieve()
+            except Exception as e:
+                raise Exception(f"Failed to retrieve collections from Typesense at {protocol}://{host}:{port}. "
+                              f"Config: nodes={config_dict['nodes']}, api_key={'*' * len(api_key)}. Error: {str(e)}")
 
             # Dynamically generate streams for each collection
             schemas_path = Path(source_typesense.__file__).parent / "schemas"
