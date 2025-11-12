@@ -14,7 +14,7 @@ readme = "README.md"
 requires-python = ">=3.9,<3.12"
 dependencies = [
     "airbyte-cdk>=0.80.0",
-    "typesense>=0.21.0",
+    "typesense>=1.0.0,<2.0.0",
 ]
 
 [project.optional-dependencies]
