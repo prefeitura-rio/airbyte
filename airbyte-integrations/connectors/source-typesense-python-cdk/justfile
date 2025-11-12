@@ -1,4 +1,4 @@
-# Airbyte MongoDB Source Connector Development Tasks
+# Airbyte Typesense Source Connector Development Tasks
 
 # Show available commands
 default:
@@ -22,7 +22,7 @@ format:
 
 # Type check with mypy
 check:
-    uv run mypy source_mongodb/
+    uv run mypy source_typesense/
 
 # Run all checks (lint + format + type check)
 validate: lint format check
@@ -37,27 +37,27 @@ clean:
 
 # Connector commands
 spec:
-    uv run source-mongodb spec
+    uv run source-typesense spec
 
 # Check connection (requires secrets/config.json)
 check-connection:
     @if [ ! -f secrets/config.json ]; then echo "Error: secrets/config.json not found"; exit 1; fi
-    uv run source-mongodb check --config secrets/config.json
+    uv run source-typesense check --config secrets/config.json
 
 # Discover schema (requires secrets/config.json)
 discover:
     @if [ ! -f secrets/config.json ]; then echo "Error: secrets/config.json not found"; exit 1; fi
-    uv run source-mongodb discover --config secrets/config.json
+    uv run source-typesense discover --config secrets/config.json
 
 # Read data (requires secrets/config.json and catalog)
 read catalog_path:
     @if [ ! -f secrets/config.json ]; then echo "Error: secrets/config.json not found"; exit 1; fi
     @if [ ! -f "{{catalog_path}}" ]; then echo "Error: catalog file {{catalog_path}} not found"; exit 1; fi
-    uv run source-mongodb read --config secrets/config.json --catalog "{{catalog_path}}"
+    uv run source-typesense read --config secrets/config.json --catalog "{{catalog_path}}"
 
 # Build Docker image
 build:
-    airbyte-ci connectors --name=source-mongodb build
+    airbyte-ci connectors --name=source-typesense build
 
 # Build Docker image with custom tag
 docker-build tag:
@@ -73,7 +73,7 @@ docker-build tag:
         echo "Error: DOCKER_IMAGE_NAME environment variable is not set"
         echo "Please create a .env file with your configuration:"
         echo "  cp .env.example .env"
-        echo "  # Edit .env to set DOCKER_IMAGE_NAME=your-username/airbyte-source-mongodb-python"
+        echo "  # Edit .env to set DOCKER_IMAGE_NAME=your-username/airbyte-source-typesense-python"
         exit 1
     fi
     echo "Building Docker image: $DOCKER_IMAGE_NAME:{{tag}}"
@@ -130,17 +130,17 @@ docker-info:
 
 # Run full Airbyte test suite
 test:
-    airbyte-ci connectors --name=source-mongodb test
+    airbyte-ci connectors --name=source-typesense test
 
 # Create example config file
 create-config:
     @mkdir -p secrets
-    @echo '{"connection_string": "mongodb://username:password@localhost:27017/database?authSource=admin", "database": "your_database", "page_size": 1000, "cursor_field": "_id"}' > secrets/config.json
-    @echo "Created example config at secrets/config.json - please edit with your MongoDB details"
+    @echo '{"host": "http://localhost:8108", "api_key": "your-api-key", "page_size": 250}' > secrets/config.json
+    @echo "Created example config at secrets/config.json - please edit with your Typesense details"
 
 # Show project info
 info:
-    @echo "📊 Airbyte MongoDB Source Connector"
+    @echo "📊 Airbyte Typesense Source Connector"
     @echo "Language: Python $(python --version | cut -d' ' -f2)"
     @echo "Package manager: uv $(uv --version | cut -d' ' -f2)"
     @echo "Virtual env: $(if [ -d .venv ]; then echo 'Active'; else echo 'Not created'; fi)"
