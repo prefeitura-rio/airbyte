@@ -80,12 +80,20 @@ class SourceTypesense(AbstractSource):
 
             client = Client(config_dict)
 
+            # Debug: verify client has API key
+            logger.info(f"Client created. API key length: {len(api_key)}, API key type: {type(api_key)}")
+            logger.info(f"Client config has api_key: {hasattr(client.config, 'api_key')}")
+            if hasattr(client.config, 'api_key'):
+                logger.info(f"Client config api_key length: {len(client.config.api_key) if client.config.api_key else 0}")
+
             # Get list of collections
             try:
                 collections_response = client.collections.retrieve()
             except Exception as e:
                 raise Exception(f"Failed to retrieve collections from Typesense at {protocol}://{host}:{port}. "
-                              f"Config: nodes={config_dict['nodes']}, api_key={'*' * len(api_key)}. Error: {str(e)}")
+                              f"Config: nodes={config_dict['nodes']}, api_key={'*' * len(api_key)}. "
+                              f"API key in client.config: {hasattr(client.config, 'api_key') and client.config.api_key is not None}. "
+                              f"Error: {str(e)}")
 
             # Dynamically generate streams for each collection
             schemas_path = Path(source_typesense.__file__).parent / "schemas"
