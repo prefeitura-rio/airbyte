@@ -152,13 +152,13 @@ class OracleOperationsTest {
   }
 
   @Test
-  void createTableQueryKeepsPrimaryKeyAndNclob() {
+  void createTableQueryUsesCachedNclobWithoutPrimaryKey() {
     final String expected = """
                             CREATE TABLE TEST_SCHEMA.TEST_TABLE (\s
-                            "_AIRBYTE_AB_ID" VARCHAR(64) PRIMARY KEY,
+                            "_AIRBYTE_AB_ID" VARCHAR(64) NOT NULL,
                             "_AIRBYTE_DATA" NCLOB,
                             "_AIRBYTE_EMITTED_AT" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                            )""";
+                            ) LOB ("_AIRBYTE_DATA") STORE AS (CACHE)""";
 
     assertEquals(expected, new OracleOperations("users").createTableQuery(null, "TEST_SCHEMA", "TEST_TABLE"));
   }

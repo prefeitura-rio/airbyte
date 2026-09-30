@@ -56,12 +56,15 @@ public class OracleOperations implements SqlOperations {
 
   @Override
   public String createTableQuery(final JdbcDatabase database, final String schemaName, final String tableName) {
+    // No primary key: direct-path inserts merge the random UUID index after every batch.
+    // CACHE writes out-of-line LOBs through the buffer cache instead of synchronous direct writes.
+    // The storage clause omits SECUREFILE so Oracle picks the LOB type the tablespace supports.
     return String.format(
         "CREATE TABLE %s.%s ( \n"
-            + "%s VARCHAR(64) PRIMARY KEY,\n"
+            + "%s VARCHAR(64) NOT NULL,\n"
             + "%s NCLOB,\n"
             + "%s TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP\n"
-            + ")",
+            + ") LOB (%s) STORE AS (CACHE)",
         schemaName, tableName,
         OracleDestination.COLUMN_NAME_AB_ID, OracleDestination.COLUMN_NAME_DATA, OracleDestination.COLUMN_NAME_EMITTED_AT,
         OracleDestination.COLUMN_NAME_DATA);
