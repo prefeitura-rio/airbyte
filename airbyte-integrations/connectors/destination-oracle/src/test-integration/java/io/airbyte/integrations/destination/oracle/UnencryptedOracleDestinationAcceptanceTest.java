@@ -122,17 +122,17 @@ public class UnencryptedOracleDestinationAcceptanceTest extends DestinationAccep
 
   private List<JsonNode> retrieveRecordsFromTable(final String tableName, final String schemaName)
       throws SQLException {
-    try (final DSLContext dslContext = getDSLContext(config)) {
-      final List<org.jooq.Record> result = getDatabase(dslContext)
-          .query(ctx -> new ArrayList<>(ctx.fetch(
-              String.format("SELECT * FROM %s.%s ORDER BY %s ASC", schemaName, tableName,
-                  OracleDestination.COLUMN_NAME_EMITTED_AT))));
-      return result
-          .stream()
-          .map(r -> r.formatJSON(JdbcUtils.getDefaultJSONFormat()))
-          .map(Jsons::deserialize)
-          .collect(Collectors.toList());
-    }
+    // jOOQ 3.15 on the runtime classpath has no DSLContext.close(), so do not use try-with-resources.
+    final DSLContext dslContext = getDSLContext(config);
+    final List<org.jooq.Record> result = getDatabase(dslContext)
+        .query(ctx -> new ArrayList<>(ctx.fetch(
+            String.format("SELECT * FROM %s.%s ORDER BY %s ASC", schemaName, tableName,
+                OracleDestination.COLUMN_NAME_EMITTED_AT))));
+    return result
+        .stream()
+        .map(r -> r.formatJSON(JdbcUtils.getDefaultJSONFormat()))
+        .map(Jsons::deserialize)
+        .collect(Collectors.toList());
   }
 
   private static DSLContext getDSLContext(final JsonNode config) {
@@ -160,14 +160,12 @@ public class UnencryptedOracleDestinationAcceptanceTest extends DestinationAccep
 
     config = getConfig(db);
 
-    try (final DSLContext dslContext = getDSLContext(config)) {
-      final Database database = getDatabase(dslContext);
-      database.query(
-          ctx -> ctx.fetch(String.format("CREATE USER %s IDENTIFIED BY %s", schemaName, schemaName)));
-      database.query(ctx -> ctx.fetch(String.format("GRANT ALL PRIVILEGES TO %s", schemaName)));
+    final Database database = getDatabase(getDSLContext(config));
+    database.query(
+        ctx -> ctx.fetch(String.format("CREATE USER %s IDENTIFIED BY %s", schemaName, schemaName)));
+    database.query(ctx -> ctx.fetch(String.format("GRANT ALL PRIVILEGES TO %s", schemaName)));
 
-      ((ObjectNode) config).put(JdbcUtils.SCHEMA_KEY, dbName);
-    }
+    ((ObjectNode) config).put(JdbcUtils.SCHEMA_KEY, dbName);
   }
 
   @Override

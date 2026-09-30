@@ -10,6 +10,7 @@ import io.airbyte.cdk.integrations.destination.StandardNameTransformer;
 import io.airbyte.cdk.integrations.destination.jdbc.SqlOperations;
 import io.airbyte.commons.json.Jsons;
 import io.airbyte.protocol.models.v0.AirbyteRecordMessage;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -23,6 +24,7 @@ import org.slf4j.LoggerFactory;
 public class OracleOperations implements SqlOperations {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(OracleOperations.class);
+  private static final int INSERT_BATCH_SIZE = 5_000;
 
   private final String tablespace;
 
@@ -34,12 +36,9 @@ public class OracleOperations implements SqlOperations {
   public void createSchemaIfNotExists(final JdbcDatabase database, final String schemaName) throws Exception {
     if (database.queryInt("select count(*) from all_users where upper(username) = upper(?)", schemaName) == 0) {
       LOGGER.warn("Schema " + schemaName + " is not found! Trying to create a new one.");
-      final String query = String.format("create user %s identified by %s quota unlimited on %s",
-          schemaName, schemaName, tablespace);
-      // need to grant privileges to new user / this option is not mandatory for Oracle DB 18c or higher
-      final String privileges = String.format("GRANT ALL PRIVILEGES TO %s", schemaName);
-      database.execute(query);
-      database.execute(privileges);
+      // Oracle 18c+ schema-only account: no password (passwords are limited to 30 bytes) and no login.
+      // The connector user creates the tables in this schema, so the schema needs no privileges.
+      database.execute(String.format("CREATE USER %s NO AUTHENTICATION QUOTA UNLIMITED ON %s", schemaName, tablespace));
     }
   }
 
@@ -89,7 +88,18 @@ public class OracleOperations implements SqlOperations {
 
   @Override
   public String truncateTableQuery(final JdbcDatabase database, final String schemaName, final String tableName) {
-    return String.format("DELETE FROM %s.%s\n", schemaName, tableName);
+    // TRUNCATE avoids row-by-row undo and redo. Use DELETE when the user cannot truncate another schema's table.
+    return String.format("""
+                         BEGIN
+                           EXECUTE IMMEDIATE 'TRUNCATE TABLE %1$s.%2$s';
+                         EXCEPTION
+                           WHEN OTHERS THEN
+                             IF SQLCODE = -1031 THEN
+                               EXECUTE IMMEDIATE 'DELETE FROM %1$s.%2$s';
+                             ELSE
+                               RAISE;
+                             END IF;
+                         END""", schemaName, tableName);
   }
 
   @Override
@@ -101,53 +111,54 @@ public class OracleOperations implements SqlOperations {
     final String tableName = String.format("%s.%s", schemaName, tempTableName);
     final String columns = String.format("(%s, %s, %s)",
         OracleDestination.COLUMN_NAME_AB_ID, OracleDestination.COLUMN_NAME_DATA, OracleDestination.COLUMN_NAME_EMITTED_AT);
-    final String recordQueryComponent = "(?, ?, ?)\n";
-    insertRawRecordsInSingleQuery(tableName, columns, recordQueryComponent, database, records, UUID::randomUUID);
+    insertRawRecordsInBatches(tableName, columns, database, records, UUID::randomUUID);
   }
 
-  // Adapted from SqlUtils.insertRawRecordsInSingleQuery to meet some needs specific to Oracle syntax
-  private static void insertRawRecordsInSingleQuery(final String tableName,
-                                                    final String columns,
-                                                    final String recordQueryComponent,
-                                                    final JdbcDatabase jdbcDatabase,
-                                                    final List<AirbyteRecordMessage> records,
-                                                    final Supplier<UUID> uuidSupplier)
+  // A single-row INSERT with JDBC batches is parsed once and avoids the large INSERT ALL statement.
+  // APPEND_VALUES uses direct-path inserts. Oracle requires a commit after each direct-path batch.
+  // Hikari connections use autocommit by default; commit explicitly only when autocommit is off.
+  private static void insertRawRecordsInBatches(final String tableName,
+                                                final String columns,
+                                                final JdbcDatabase jdbcDatabase,
+                                                final List<AirbyteRecordMessage> records,
+                                                final Supplier<UUID> uuidSupplier)
       throws SQLException {
     if (records.isEmpty()) {
       return;
     }
 
+    final String query = String.format("INSERT /*+ APPEND_VALUES */ INTO %s %s VALUES (?, ?, ?)", tableName, columns);
+
     jdbcDatabase.execute(connection -> {
-
-      // Strategy: We want to use PreparedStatement because it handles binding values to the SQL query
-      // (e.g. handling formatting timestamps). A PreparedStatement statement is created by supplying the
-      // full SQL string at creation time. Then subsequently specifying which values are bound to the
-      // string. Thus there will be two loops below.
-      // 1) Loop over records to build the full string.
-      // 2) Loop over the records and bind the appropriate values to the string.
-      //
-      // The "SELECT 1 FROM DUAL" at the end is a formality to satisfy the needs of the Oracle syntax.
-      // (see https://stackoverflow.com/a/93724 for details)
-      final StringBuilder sql = new StringBuilder("INSERT ALL ");
-      records.forEach(r -> sql.append(String.format("INTO %s %s VALUES %s", tableName, columns, recordQueryComponent)));
-      sql.append(" SELECT 1 FROM DUAL");
-      final String query = sql.toString();
-
+      final boolean commitEachBatch = !connection.getAutoCommit();
       try (final PreparedStatement statement = connection.prepareStatement(query)) {
-        // second loop: bind values to the SQL string.
-        int i = 1;
+        int batchCount = 0;
         for (final AirbyteRecordMessage message : records) {
-          // 1-indexed
           final JsonNode formattedData = StandardNameTransformer.formatJsonPath(message.getData());
-          statement.setString(i, uuidSupplier.get().toString());
-          statement.setString(i + 1, Jsons.serialize(formattedData));
-          statement.setTimestamp(i + 2, Timestamp.from(Instant.ofEpochMilli(message.getEmittedAt())));
-          i += 3;
+          statement.setString(1, uuidSupplier.get().toString());
+          statement.setString(2, Jsons.serialize(formattedData));
+          statement.setTimestamp(3, Timestamp.from(Instant.ofEpochMilli(message.getEmittedAt())));
+          statement.addBatch();
+
+          if (++batchCount == INSERT_BATCH_SIZE) {
+            executeBatch(connection, statement, commitEachBatch);
+            batchCount = 0;
+          }
         }
 
-        statement.execute();
+        if (batchCount > 0) {
+          executeBatch(connection, statement, commitEachBatch);
+        }
       }
     });
+  }
+
+  private static void executeBatch(final Connection connection, final PreparedStatement statement, final boolean commit)
+      throws SQLException {
+    statement.executeBatch();
+    if (commit) {
+      connection.commit();
+    }
   }
 
   @Override
@@ -160,6 +171,10 @@ public class OracleOperations implements SqlOperations {
 
   @Override
   public void executeTransaction(final JdbcDatabase database, final List<String> queries) throws Exception {
+    // Append mode has no start queries. An empty PL/SQL block fails with PLS-00103.
+    if (queries.isEmpty()) {
+      return;
+    }
     final String SQL = "BEGIN\n COMMIT;\n" + String.join(";\n", queries) + "; \nCOMMIT; \nEND;";
     database.execute(SQL);
   }
